@@ -24,7 +24,8 @@ export default async function handler(req) {
 
   try {
     const { crumb, cookie } = await getCrumb();
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y&crumb=${encodeURIComponent(crumb)}`;
+    const range = searchParams.get("range") || "1y";
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${range}&crumb=${encodeURIComponent(crumb)}`;
     const res = await fetch(url, {
       headers: { "User-Agent": UA, "Cookie": cookie, "Accept": "application/json" },
     });

@@ -44,10 +44,11 @@ export default defineConfig(async () => {
             const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
             const params = new URLSearchParams(qs);
             const symbol = params.get("symbol");
+            const range = params.get("range") || "1y";
             if (!symbol) { res.statusCode = 400; res.end("symbol required"); return; }
             try {
               const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
-              const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y&crumb=${encodeURIComponent(yahoo.crumb)}`;
+              const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${range}&crumb=${encodeURIComponent(yahoo.crumb)}`;
               const data = await httpsGet(url, { "User-Agent": ua, "Cookie": yahoo.cookie, "Accept": "application/json" });
               res.setHeader("Content-Type", "application/json");
               res.statusCode = 200;
