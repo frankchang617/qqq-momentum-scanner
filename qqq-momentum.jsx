@@ -23,6 +23,69 @@ const SORT_OPTS = [
   { key:"sharpe50", label:"50日夏普" },
 ];
 
+// ── 主题 ──
+const DARK = {
+  pageBg:       "#070c12",
+  navBg:        "linear-gradient(180deg,#0c1520 0%,#070c12 100%)",
+  navBorder:    "#182030",
+  cardBg:       "#0b1320",
+  cardBg2:      "#0a1520",
+  theadBg:      "#0d1520",
+  rowEven:      "#09111a",
+  rowTop3:      "#0b1a10",
+  rowExp:       "#0d1c2e",
+  rowHover:     "#0d1828",
+  border:       "#182030",
+  borderSub:    "#253545",
+  borderMuted:  "#304050",
+  barTrack:     "#141e2a",
+  inputBg:      "#0a1520",
+  text:         "#c0d0e0",
+  textBright:   "#dff0ff",
+  textSub:      "#7a9aaa",
+  textMuted:    "#6a8090",
+  textVMuted:   "#405870",
+  textPrice:    "#8899aa",
+  btnActiveBg:  "#005bcc22",
+  btnActiveBdr: "#005bcc",
+  btnActiveClr: "#4499ff",
+  btnBorder:    "#182030",
+  btnColor:     "#7a9aaa",
+  scrollBg:     "#070c12",
+  scrollThumb:  "#182030",
+};
+
+const LIGHT = {
+  pageBg:       "#f2f6fb",
+  navBg:        "linear-gradient(180deg,#e4edf7 0%,#f2f6fb 100%)",
+  navBorder:    "#c4d4e4",
+  cardBg:       "#ffffff",
+  cardBg2:      "#f5f9fd",
+  theadBg:      "#e8f0f8",
+  rowEven:      "#f8fbff",
+  rowTop3:      "#edfff5",
+  rowExp:       "#deeeff",
+  rowHover:     "#d8e8f8",
+  border:       "#c4d4e4",
+  borderSub:    "#a8bace",
+  borderMuted:  "#8aa0b0",
+  barTrack:     "#d4e0ec",
+  inputBg:      "#ffffff",
+  text:         "#243444",
+  textBright:   "#0c1c2c",
+  textSub:      "#4e6070",
+  textMuted:    "#5e7080",
+  textVMuted:   "#7888a0",
+  textPrice:    "#4e6070",
+  btnActiveBg:  "#0055cc18",
+  btnActiveBdr: "#0055cc",
+  btnActiveClr: "#0055cc",
+  btnBorder:    "#b8c8d8",
+  btnColor:     "#4e6070",
+  scrollBg:     "#e8f0f8",
+  scrollThumb:  "#b0c4d4",
+};
+
 // Threshold arrays must be in descending order
 function makeColorScale(steps) {
   return (v) => {
@@ -31,12 +94,12 @@ function makeColorScale(steps) {
   };
 }
 const retColor = makeColorScale([
-  [20,"#00ff88"],[10,"#33dd99"],[5,"#66cc99"],[0,"#88aabb"],
-  [-5,"#cc8877"],[-15,"#dd5544"],[-Infinity,"#ff2233"],
+  [20,"#00c96e"],[10,"#22b87a"],[5,"#44a880"],[0,"#6688aa"],
+  [-5,"#cc7766"],[-15,"#cc4433"],[-Infinity,"#ee1122"],
 ]);
 const sharpeColor = makeColorScale([
-  [1.5,"#00ff88"],[0.8,"#33dd99"],[0.3,"#66cc99"],
-  [0,"#88aabb"],[-0.5,"#cc8877"],[-Infinity,"#dd5544"],
+  [1.5,"#00c96e"],[0.8,"#22b87a"],[0.3,"#44a880"],
+  [0,"#6688aa"],[-0.5,"#cc7766"],[-Infinity,"#cc4433"],
 ]);
 
 function fmtNum(v, d=2, suffix="") {
@@ -45,11 +108,11 @@ function fmtNum(v, d=2, suffix="") {
 }
 const fmtPct = (v, d=1) => fmtNum(v, d, "%");
 
-function activeButtonStyle(isActive) {
+function activeButtonStyle(isActive, T) {
   return {
-    background: isActive ? "#005bcc22" : "transparent",
-    border: `1px solid ${isActive ? "#005bcc" : "#182030"}`,
-    color: isActive ? "#4499ff" : "#7a9aaa",
+    background: isActive ? T.btnActiveBg : "transparent",
+    border: `1px solid ${isActive ? T.btnActiveBdr : T.btnBorder}`,
+    color: isActive ? T.btnActiveClr : T.btnColor,
     borderRadius: 6,
     fontFamily: "inherit",
     fontSize: 11,
@@ -77,7 +140,7 @@ function Sparkline({ closes, width=100, height=36, days=60 }) {
     return `${x},${y}`;
   }).join(" ");
   const first = slice[0], last = slice[slice.length - 1];
-  const color = last >= first ? "#00ff88" : "#ff3344";
+  const color = last >= first ? "#00c96e" : "#ee3344";
   const lastX = pad + iw, lastY = pad + ih - ((last - min) / range) * ih;
   const id = `sg${uid}`;
   return (
@@ -96,12 +159,12 @@ function Sparkline({ closes, width=100, height=36, days=60 }) {
   );
 }
 
-function MiniBar({ value, maxAbs, colorFn }) {
+function MiniBar({ value, maxAbs, colorFn, barTrack }) {
   const color = colorFn(value);
   const pct = Math.min(Math.abs(value ?? 0) / (maxAbs || 1), 1) * 100;
   return (
     <div style={{display:"flex", alignItems:"center", gap:6}}>
-      <div style={{width:56, height:5, background:"#141e2a", borderRadius:3, overflow:"hidden"}}>
+      <div style={{width:56, height:5, background:barTrack, borderRadius:3, overflow:"hidden"}}>
         <div style={{width:`${pct}%`, height:"100%", background:color, borderRadius:3}}/>
       </div>
       <span style={{color, fontFamily:"monospace", fontSize:12, minWidth:54, textAlign:"right"}}>
@@ -133,7 +196,6 @@ async function fetchCandles(symbol, signal) {
       const data = await res.json();
       const q = data?.chart?.result?.[0]?.indicators?.quote?.[0];
       if (!q?.close || q.close.length < 10) return null;
-      // 同时返回收盘/最高/最低，过滤任一为 null 的日期
       const rows = [];
       for (let i = 0; i < q.close.length; i++) {
         if (q.close[i] != null && q.high?.[i] != null && q.low?.[i] != null)
@@ -210,7 +272,7 @@ function atrArrFn(highs, lows, closes, period = 14) {
       atr = (atr ?? 0) * ((count - 1) / count) + tr / count;
       if (count >= period) arr[i] = atr;
     } else {
-      atr = (atr * (period - 1) + tr) / period; // Wilder 平滑
+      atr = (atr * (period - 1) + tr) / period;
       arr[i] = atr;
     }
   }
@@ -269,7 +331,6 @@ function backtest(closes, highs, lows, maDays, entryMode = "touch", exitMode = "
   const dollarTrailPct = vol20 > 50 ? 0.30 : 0.20;
   if (!closes || closes.length < maDays + 35) return null;
 
-  // 预计算全部指标数组（每次回测只算一次）
   const maArr      = maArrFn(closes, maDays);
   const atrArr     = atrArrFn(highs, lows, closes, 14);
   const rsiArr     = rsiArrFn(closes, 14);
@@ -282,19 +343,15 @@ function backtest(closes, highs, lows, maDays, entryMode = "touch", exitMode = "
     if (!ma || !prevMa) continue;
     const cur = closes[i], prev = closes[i-1];
 
-    // 价格回调至均线 ±2%（所有入场模式共同前提）
     if (prev < prevMa * 1.01) continue;
     if (cur > ma * 1.02 || cur < ma * 0.97) continue;
 
-    // 冲量系统过滤
     if ((entryMode === 'impulse_touch' || entryMode === 'impulse_bounce') && impulse[i] !== 'green') continue;
 
-    // 确定实际买入日
     let entryIdx;
     if (entryMode === 'touch' || entryMode === 'impulse_touch') {
       entryIdx = i + 1;
     } else {
-      // 等待次日收盘站回均线上方再买（反弹确认）
       const nextMa = maArr[i + 1];
       if (!closes[i+1] || !nextMa || closes[i+1] <= nextMa) continue;
       entryIdx = i + 2;
@@ -360,7 +417,10 @@ export default function App() {
   const [costBasis,   setCostBasis]   = useState({});
   const [btMode,      setBtMode]      = useState("mabreak");
   const [btEntry,     setBtEntry]     = useState("touch");
-  const abortRef   = useRef(null);
+  const [darkMode,    setDarkMode]    = useState(true);
+  const abortRef = useRef(null);
+
+  const T = darkMode ? DARK : LIGHT;
 
   const toggleFilter = useCallback(key =>
     setFilters(f => ({ ...f, [key]: !f[key] })), []);
@@ -419,7 +479,6 @@ export default function App() {
     runScan();
   }, [runScan]);
 
-  // 单独获取 QQQ 自身数据作为大盘指标
   useEffect(() => {
     const controller = new AbortController();
     fetchCandles("QQQ", controller.signal).then(raw => {
@@ -434,9 +493,7 @@ export default function App() {
     return () => controller.abort();
   }, []);
 
-
   const { sorted, passCount, mAbs20, mAbs50, mAbs200, rankMap } = useMemo(() => {
-    // 200日涨幅第25百分位（用于极端尾部判断）
     const ret200vals = results.map(r => r.ret200 ?? 0).sort((a,b) => a-b);
     const p25 = ret200vals[Math.floor(ret200vals.length * 0.25)] ?? -Infinity;
 
@@ -453,7 +510,6 @@ export default function App() {
       .sort((a, b) => (b[sortKey] ?? -999) - (a[sortKey] ?? -999))
       .slice(0, topN);
 
-    // 全量按综合得分排名（不受过滤器影响，用于判断买入条件）
     const allRanked = [...results]
       .filter(r => !r.error && r.score != null)
       .sort((a, b) => b.score - a.score);
@@ -485,56 +541,70 @@ export default function App() {
   const pct = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
 
   return (
-    <div style={{minHeight:"100vh", background:"#070c12", color:"#c0d0e0",
+    <div style={{minHeight:"100vh", background:T.pageBg, color:T.text,
       fontFamily:"'IBM Plex Mono',monospace"}}>
 
-      <div style={{padding:"16px 28px", borderBottom:"1px solid #182030",
-        background:"linear-gradient(180deg,#0c1520 0%,#070c12 100%)",
+      {/* ── 顶部导航 ── */}
+      <div style={{padding:"16px 28px", borderBottom:`1px solid ${T.navBorder}`,
+        background:T.navBg,
         display:"flex", alignItems:"center", justifyContent:"space-between"}}>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
           <div style={{width:8, height:8, borderRadius:"50%",
-            background:loading?"#00ff88":"#3a5868",
-            boxShadow:loading?"0 0 8px #00ff88":"none",
+            background:loading?"#00c96e":"#3a5868",
+            boxShadow:loading?"0 0 8px #00c96e":"none",
             animation:loading?"pulse 1s infinite":"none"}}/>
-          <span style={{fontSize:18, fontWeight:700, color:"#dff0ff", letterSpacing:1.5}}>
+          <span style={{fontSize:18, fontWeight:700, color:T.textBright, letterSpacing:1.5}}>
             QQQ MOMENTUM SCANNER
           </span>
-          <span style={{fontSize:10, color:"#6a8090", border:"1px solid #1e2c3e",
+          <span style={{fontSize:10, color:T.textMuted, border:`1px solid ${T.navBorder}`,
             padding:"2px 7px", borderRadius:4, letterSpacing:2}}>
             20D · 50D · 200D
           </span>
         </div>
-        {lastUpdated && (
-          <span style={{fontSize:11, color:"#6a8090"}}>
-            Updated {lastUpdated.toLocaleTimeString()}
-          </span>
-        )}
+        <div style={{display:"flex", alignItems:"center", gap:14}}>
+          {lastUpdated && (
+            <span style={{fontSize:11, color:T.textMuted}}>
+              Updated {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          {/* 亮/暗模式切换 */}
+          <button
+            onClick={() => setDarkMode(d => !d)}
+            title={darkMode ? "切换到亮色模式" : "切换到暗色模式"}
+            style={{
+              padding:"4px 10px", borderRadius:6, cursor:"pointer",
+              fontFamily:"inherit", fontSize:12,
+              background: darkMode ? "#1a2a3a" : "#e0ecf8",
+              border: `1px solid ${T.navBorder}`,
+              color: T.textSub,
+              transition:"all 0.2s",
+            }}>
+            {darkMode ? "☀ 亮色" : "☾ 暗色"}
+          </button>
+        </div>
       </div>
 
       <div style={{padding:"20px 28px"}}>
 
         {!loading && results.length === 0 && (
-          <div style={{maxWidth:560, margin:"64px auto 0", textAlign:"center", color:"#7a9aaa", fontSize:12}}>
+          <div style={{maxWidth:560, margin:"64px auto 0", textAlign:"center", color:T.textSub, fontSize:12}}>
             正在连接 Yahoo Finance，准备扫描 {QQQ_COMPONENTS.length} 只成分股…
           </div>
         )}
 
         {loading && (
           <div style={{maxWidth:560, margin:"32px auto"}}>
-            <div style={{display:"flex", justifyContent:"space-between", fontSize:11, color:"#7a9aaa", marginBottom:6}}>
-              <span>SCANNING QQQ COMPONENTS</span>
-              <span>{progress.done} / {progress.total} · {pct}%</span>
+            <div style={{display:"flex", justifyContent:"space-between", fontSize:11, color:T.textSub, marginBottom:6}}>
+              <span>正在扫描… {progress.done} / {progress.total}</span>
+              <span>{pct}%</span>
             </div>
-            <div style={{height:3, background:"#141e2a", borderRadius:2, overflow:"hidden", marginBottom:6}}>
+            <div style={{height:3, background:T.barTrack, borderRadius:2, overflow:"hidden", marginBottom:6}}>
               <div style={{width:`${pct}%`, height:"100%",
-                background:"linear-gradient(90deg,#005bcc,#00ff88)", transition:"width 0.4s ease"}}/>
-            </div>
-            <div style={{fontSize:11, color:"#6a8090"}}>
-              {results.length > 0 && `${results.length} stocks loaded — updating live ↓`}
+                background:"linear-gradient(90deg,#005bcc,#00c96e)", borderRadius:2}}/>
             </div>
             <button onClick={() => { abortRef.current?.abort(); setLoading(false); }}
               style={{marginTop:12, padding:"5px 14px", background:"transparent",
-                border:"1px solid #223", borderRadius:6, color:"#7a9aaa",
+                border:`1px solid ${T.border}`, borderRadius:6, color:T.textSub,
                 fontFamily:"inherit", fontSize:11, cursor:"pointer"}}>■ STOP</button>
           </div>
         )}
@@ -543,27 +613,27 @@ export default function App() {
           <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
             {[
               {label:"已扫描",       val:results.length,      unit:"只"},
-              {label:"正动能 20D",   val:breadthPos,          unit:"只", color:"#00ff88"},
-              {label:"负动能 20D",   val:breadthNeg,          unit:"只", color:"#ff3344"},
+              {label:"正动能 20D",   val:breadthPos,          unit:"只", color:"#00c96e"},
+              {label:"负动能 20D",   val:breadthNeg,          unit:"只", color:"#ee3344"},
               {label:"均值 20D涨幅", val:fmtPct(avgRet20),               color:retColor(avgRet20)},
             ].map(s => (
-              <div key={s.label} style={{padding:"10px 18px", background:"#0b1320",
-                border:"1px solid #182030", borderRadius:8, minWidth:130}}>
-                <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1, marginBottom:3}}>{s.label}</div>
-                <div style={{fontSize:22, fontWeight:700, color:s.color??"#c0d0e0", fontFamily:"monospace"}}>
+              <div key={s.label} style={{padding:"10px 18px", background:T.cardBg,
+                border:`1px solid ${T.border}`, borderRadius:8, minWidth:130}}>
+                <div style={{fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:3}}>{s.label}</div>
+                <div style={{fontSize:22, fontWeight:700, color:s.color??T.text, fontFamily:"monospace"}}>
                   {s.val}{s.unit??""}
                 </div>
               </div>
             ))}
             {qqqData && (
-              <div style={{padding:"10px 18px", background:"#0b1320",
-                border:`1px solid ${qqqData.aboveMA200 ? "#00ff8844" : "#ff334444"}`, borderRadius:8, minWidth:150}}>
-                <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1, marginBottom:3}}>QQQ 大盘状态</div>
+              <div style={{padding:"10px 18px", background:T.cardBg,
+                border:`1px solid ${qqqData.aboveMA200 ? "#00c96e44" : "#ee334444"}`, borderRadius:8, minWidth:150}}>
+                <div style={{fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:3}}>QQQ 大盘状态</div>
                 <div style={{fontSize:18, fontWeight:700, fontFamily:"monospace",
-                  color: qqqData.aboveMA200 ? "#00ff88" : "#ff3344"}}>
+                  color: qqqData.aboveMA200 ? "#00c96e" : "#ee3344"}}>
                   {qqqData.aboveMA200 ? "▲ 趋势健康" : "▼ 趋势偏弱"}
                 </div>
-                <div style={{fontSize:10, color:"#6a8090", marginTop:2}}>
+                <div style={{fontSize:10, color:T.textMuted, marginTop:2}}>
                   {qqqData.aboveMA200 ? "价格高于200日均线" : "⚠️ 价格低于200日均线，谨慎买入"}
                 </div>
               </div>
@@ -577,16 +647,16 @@ export default function App() {
             <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
               {SORT_OPTS.map(o => (
                 <button key={o.key} onClick={() => setSortKey(o.key)}
-                  style={{padding:"5px 12px", ...activeButtonStyle(sortKey === o.key)}}>
+                  style={{padding:"5px 12px", ...activeButtonStyle(sortKey === o.key, T)}}>
                   {o.label}
                 </button>
               ))}
             </div>
             <div style={{display:"flex", gap:5, marginLeft:"auto", alignItems:"center"}}>
-              <span style={{fontSize:11, color:"#7a9aaa"}}>Top</span>
+              <span style={{fontSize:11, color:T.textSub}}>Top</span>
               {[10,20,30,50].map(n => (
                 <button key={n} onClick={() => setTopN(n)}
-                  style={{padding:"4px 10px", ...activeButtonStyle(topN === n)}}>
+                  style={{padding:"4px 10px", ...activeButtonStyle(topN === n, T)}}>
                   {n}
                 </button>
               ))}
@@ -601,7 +671,7 @@ export default function App() {
 
           {/* 精选过滤面板 */}
           <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:14, flexWrap:"wrap"}}>
-            <span style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.5, marginRight:4}}>精选筛选</span>
+            <span style={{fontSize:10, color:T.textSub, letterSpacing:1.5, marginRight:4}}>精选筛选</span>
             {[
               { key:"allPositive", label:"三周期同向",  desc:"20/50/200日全为正" },
               { key:"minRet20",    label:"20日 ≥ +20%", desc:"近期动能仍在持续" },
@@ -612,22 +682,22 @@ export default function App() {
                 <button key={key} onClick={() => toggleFilter(key)} title={desc} style={{
                   padding:"4px 12px", fontSize:11, cursor:"pointer", fontFamily:"inherit",
                   borderRadius:6, transition:"all 0.15s",
-                  background: on ? "#003a1a" : "transparent",
-                  border: `1px solid ${on ? "#00cc66" : "#304050"}`,
-                  color: on ? "#00ff88" : "#7a9aaa",
+                  background: on ? (darkMode ? "#003a1a" : "#d0ffea") : "transparent",
+                  border: `1px solid ${on ? "#00aa55" : T.borderMuted}`,
+                  color: on ? "#00aa55" : T.textSub,
                 }}>
                   {on ? "✓ " : ""}{label}
                 </button>
               );
             })}
             {passCount !== null && (
-              <span style={{fontSize:11, color:"#00cc66", marginLeft:4}}>
+              <span style={{fontSize:11, color:"#00aa55", marginLeft:4}}>
                 → {passCount} 只通过
               </span>
             )}
             {Object.values(filters).some(Boolean) && (
               <button onClick={() => setFilters({allPositive:false,minRet20:false,minSharpe50:false})}
-                style={{fontSize:10, color:"#7a9aaa", background:"transparent", border:"none",
+                style={{fontSize:10, color:T.textSub, background:"transparent", border:"none",
                   cursor:"pointer", fontFamily:"inherit", padding:"2px 6px"}}>
                 清除
               </button>
@@ -637,14 +707,23 @@ export default function App() {
         )}
 
         {sorted.length > 0 && (
-          <div style={{overflowX:"auto", overflowY:"auto", maxHeight:"70vh"}}>
-            <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
+          <div style={{overflowX:"auto", overflowY:"auto", maxHeight:"70vh",
+            border:`1px solid ${T.border}`, borderRadius:8}}>
+            {/*
+              borderCollapse:"separate" + borderSpacing:0 是 position:sticky thead 生效的必要条件。
+              borderCollapse:"collapse" 会导致 sticky 在所有主流浏览器失效。
+            */}
+            <table style={{width:"100%", borderCollapse:"separate", borderSpacing:0, fontSize:12}}>
               <thead>
-                <tr style={{borderBottom:"1px solid #182030"}}>
+                <tr>
                   {["#","代码","现价","60日走势","综合得分","信号","一致性","20日涨幅","50日涨幅","200日涨幅","20日夏普","50日夏普"].map(h => (
-                    <th key={h} style={{padding:"9px 10px", textAlign:"left", color:"#7a9aaa",
+                    <th key={h} style={{
+                      padding:"9px 10px", textAlign:"left", color:T.textSub,
                       fontWeight:500, fontSize:10, letterSpacing:1.2, whiteSpace:"nowrap",
-                      position:"sticky", top:0, background:"#0d1520", zIndex:10}}>{h}</th>
+                      position:"sticky", top:0, zIndex:10,
+                      background:T.theadBg,
+                      boxShadow:`0 1px 0 ${T.border}`,
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -656,72 +735,89 @@ export default function App() {
                     <Fragment key={row.symbol}>
                       <tr
                         onClick={() => setExpandedSym(isExp ? null : row.symbol)}
+                        className="data-row"
                         style={{
-                          borderBottom: isExp ? "none" : "1px solid #10181f",
-                          background: isExp ? "#0d1c2e" : i < 3 ? "#0b1a10" : i%2===0 ? "#09111a" : "transparent",
-                          cursor:"pointer", transition:"background 0.15s"
+                          borderBottom: isExp ? "none" : `1px solid ${T.border}`,
+                          background: isExp ? T.rowExp : i < 3 ? T.rowTop3 : i%2===0 ? T.rowEven : "transparent",
+                          cursor:"pointer", transition:"background 0.15s",
+                          "--hover-bg": T.rowHover,
                         }}>
-                        <td style={{...tdStyle, color:i<3?"#00ff88":"#6a8090", fontWeight:700, fontSize:11}}>
+                        <td style={{...tdStyle,
+                          color:i<3?"#00c96e":T.textMuted, fontWeight:700, fontSize:11,
+                          borderBottom:`1px solid ${T.border}`}}>
                           {medal ?? (i+1)}
                         </td>
-                        <td style={tdStyle}>
-                          <span style={{fontWeight:700, color:"#dff0ff", fontSize:13, letterSpacing:1}}>
+                        <td style={{...tdStyle, borderBottom:`1px solid ${T.border}`}}>
+                          <span style={{fontWeight:700, color:T.textBright, fontSize:13, letterSpacing:1}}>
                             {row.symbol}
                           </span>
                         </td>
-                        <td style={{...tdStyle, color:"#8899aa", fontFamily:"monospace"}}>
+                        <td style={{...tdStyle, color:T.textPrice, fontFamily:"monospace",
+                          borderBottom:`1px solid ${T.border}`}}>
                           ${row.price?.toFixed(2) ?? "—"}
                         </td>
-                        <td style={{padding:"6px 10px"}}>
+                        <td style={{padding:"6px 10px", borderBottom:`1px solid ${T.border}`}}>
                           <Sparkline closes={row.closes} width={100} height={34} days={60}/>
                         </td>
-                        <td style={tdStyle}><ScoreBadge score={row.score}/></td>
-                        <td style={tdStyle}>{(() => {
+                        <td style={{...tdStyle, borderBottom:`1px solid ${T.border}`}}>
+                          <ScoreBadge score={row.score}/>
+                        </td>
+                        <td style={{...tdStyle, borderBottom:`1px solid ${T.border}`}}>{(() => {
                           const rank = rankMap.get(row.symbol) ?? 999;
                           const allPos = (row.ret20??-1)>0 && (row.ret50??-1)>0 && (row.ret200??-1)>0;
                           const buyOK = rank <= 15 && allPos && (row.sharpe50??0) >= 1.0 && (row.ret20??0) <= 60;
                           const avoidOK = (row.ret200??0) > 200 || !allPos;
                           if (buyOK) return (
                             <span style={{padding:"3px 8px", borderRadius:4, fontSize:10, fontWeight:700,
-                              background:"#003a1a", border:"1px solid #00cc66", color:"#00ff88", whiteSpace:"nowrap"}}>
+                              background: darkMode ? "#003a1a" : "#d0ffea",
+                              border:"1px solid #00aa55", color:"#00aa55", whiteSpace:"nowrap"}}>
                               买入参考
                             </span>
                           );
                           if (avoidOK) return (
                             <span style={{padding:"3px 8px", borderRadius:4, fontSize:10, fontWeight:700,
-                              background:"#2a1000", border:"1px solid #cc6600", color:"#ff9944", whiteSpace:"nowrap"}}>
+                              background: darkMode ? "#2a1000" : "#fff3e0",
+                              border:"1px solid #cc6600", color:"#cc6600", whiteSpace:"nowrap"}}>
                               观望
                             </span>
                           );
-                          return <span style={{color:"#405870", fontSize:11}}>—</span>;
+                          return <span style={{color:T.textVMuted, fontSize:11}}>—</span>;
                         })()}</td>
-                        <td style={{...tdStyle, whiteSpace:"nowrap"}}>
+                        <td style={{...tdStyle, whiteSpace:"nowrap", borderBottom:`1px solid ${T.border}`}}>
                           {[row.ret20, row.ret50, row.ret200].map((v, di) => (
                             <span key={di} title={["20D","50D","200D"][di]}
                               style={{fontSize:14, marginRight:1,
-                                color: v == null ? "#304050" : v > 0 ? "#00ff88" : "#ff3344"}}>●</span>
+                                color: v == null ? T.borderMuted : v > 0 ? "#00c96e" : "#ee3344"}}>●</span>
                           ))}
                         </td>
-                        <td style={tdStyle}><MiniBar value={row.ret20}  maxAbs={mAbs20}  colorFn={retColor}/></td>
-                        <td style={tdStyle}><MiniBar value={row.ret50}  maxAbs={mAbs50}  colorFn={retColor}/></td>
-                        <td style={tdStyle}><MiniBar value={row.ret200} maxAbs={mAbs200} colorFn={retColor}/></td>
-                        <td style={{...tdStyle, color:sharpeColor(row.sharpe20), fontFamily:"monospace"}}>
+                        <td style={{...tdStyle, borderBottom:`1px solid ${T.border}`}}>
+                          <MiniBar value={row.ret20}  maxAbs={mAbs20}  colorFn={retColor} barTrack={T.barTrack}/>
+                        </td>
+                        <td style={{...tdStyle, borderBottom:`1px solid ${T.border}`}}>
+                          <MiniBar value={row.ret50}  maxAbs={mAbs50}  colorFn={retColor} barTrack={T.barTrack}/>
+                        </td>
+                        <td style={{...tdStyle, borderBottom:`1px solid ${T.border}`}}>
+                          <MiniBar value={row.ret200} maxAbs={mAbs200} colorFn={retColor} barTrack={T.barTrack}/>
+                        </td>
+                        <td style={{...tdStyle, color:sharpeColor(row.sharpe20), fontFamily:"monospace",
+                          borderBottom:`1px solid ${T.border}`}}>
                           {fmtNum(row.sharpe20)}
                         </td>
-                        <td style={{...tdStyle, color:sharpeColor(row.sharpe50), fontFamily:"monospace"}}>
+                        <td style={{...tdStyle, color:sharpeColor(row.sharpe50), fontFamily:"monospace",
+                          borderBottom:`1px solid ${T.border}`}}>
                           {fmtNum(row.sharpe50)}
                         </td>
                       </tr>
                       {isExp && (
-                        <tr style={{background:"#0d1c2e", borderBottom:"1px solid #182030"}}>
-                          <td colSpan={12} style={{padding:"20px 24px"}}>
+                        <tr style={{background:T.rowExp}}>
+                          <td colSpan={12} style={{padding:"20px 24px", borderBottom:`1px solid ${T.border}`}}>
                             <div style={{display:"flex", gap:32, flexWrap:"wrap", alignItems:"flex-start"}}>
                               <div>
-                                <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1, marginBottom:8}}>
+                                <div style={{fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:8}}>
                                   {row.symbol} · 200日价格走势
                                 </div>
                                 <Sparkline closes={row.closes} width={340} height={90} days={200}/>
-                                <div style={{fontSize:10, color:"#6a8090", marginTop:4, display:"flex",
+                                <div style={{fontSize:10, color:T.textMuted, marginTop:4, display:"flex",
                                   justifyContent:"space-between", width:340}}>
                                   <span>200日前</span><span>今日</span>
                                 </div>
@@ -731,30 +827,30 @@ export default function App() {
                                   {label:"20日涨幅",   val:fmtPct(row.ret20),        color:retColor(row.ret20)},
                                   {label:"50日涨幅",   val:fmtPct(row.ret50),        color:retColor(row.ret50)},
                                   {label:"200日涨幅",  val:fmtPct(row.ret200),       color:retColor(row.ret200)},
-                                  {label:"20日波动率", val:fmtNum(row.vol20,1,"%"),  color:"#8899aa"},
-                                  {label:"50日波动率", val:fmtNum(row.vol50,1,"%"),  color:"#8899aa"},
+                                  {label:"20日波动率", val:fmtNum(row.vol20,1,"%"),  color:T.textPrice},
+                                  {label:"50日波动率", val:fmtNum(row.vol50,1,"%"),  color:T.textPrice},
                                   {label:"综合得分",   val:fmtPct(row.score,1),      color:retColor(row.score)},
                                   {label:"20日夏普",   val:fmtNum(row.sharpe20),     color:sharpeColor(row.sharpe20)},
                                   {label:"50日夏普",   val:fmtNum(row.sharpe50),     color:sharpeColor(row.sharpe50)},
-                                  {label:"现价",       val:"$"+(row.price?.toFixed(2)??"—"), color:"#dff0ff"},
+                                  {label:"现价",       val:"$"+(row.price?.toFixed(2)??"—"), color:T.textBright},
                                 ].map(s => (
                                   <div key={s.label} style={{padding:"10px 12px",
-                                    background:"#0a1520", border:"1px solid #182030", borderRadius:7}}>
-                                    <div style={{fontSize:10, color:"#7a9aaa", marginBottom:3}}>{s.label}</div>
+                                    background:T.cardBg2, border:`1px solid ${T.border}`, borderRadius:7}}>
+                                    <div style={{fontSize:10, color:T.textSub, marginBottom:3}}>{s.label}</div>
                                     <div style={{fontSize:15, fontWeight:700, color:s.color, fontFamily:"monospace"}}>{s.val}</div>
                                   </div>
                                 ))}
                               </div>
                             </div>
                             {/* 回测面板 */}
-                            <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
+                            <div style={{marginTop:16, paddingTop:14, borderTop:`1px solid ${T.border}`}}>
                               <div style={{marginBottom:10}}>
-                                <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:6}}>
+                                <div style={{fontSize:10, color:T.textSub, letterSpacing:1.2, marginBottom:6}}>
                                   回测 · 止损-9%常驻
                                 </div>
                                 {/* 入场方式 */}
                                 <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:6, flexWrap:"wrap"}}>
-                                  <span style={{fontSize:10, color:"#405870", minWidth:36}}>入场</span>
+                                  <span style={{fontSize:10, color:T.textVMuted, minWidth:36}}>入场</span>
                                   {[
                                     { id:"touch",          label:"触线即买"       },
                                     { id:"bounce",         label:"反弹确认再买"   },
@@ -764,16 +860,16 @@ export default function App() {
                                     <button key={id} onClick={e => { e.stopPropagation(); setBtEntry(id); }}
                                       style={{padding:"3px 9px", fontSize:10, cursor:"pointer",
                                         fontFamily:"inherit", borderRadius:5,
-                                        background: btEntry===id ? "#1a0040" : "transparent",
-                                        border:`1px solid ${btEntry===id ? "#aa66ff" : "#253545"}`,
-                                        color: btEntry===id ? "#bb88ff" : "#6a8090"}}>
+                                        background: btEntry===id ? (darkMode ? "#1a0040" : "#ede8ff") : "transparent",
+                                        border:`1px solid ${btEntry===id ? "#9966ee" : T.borderSub}`,
+                                        color: btEntry===id ? "#9966ee" : T.textMuted}}>
                                       {label}
                                     </button>
                                   ))}
                                 </div>
-                                {/* 出场方式 */}
+                                {/* 出場方式 */}
                                 <div style={{display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
-                                  <span style={{fontSize:10, color:"#405870", minWidth:36}}>出场</span>
+                                  <span style={{fontSize:10, color:T.textVMuted, minWidth:36}}>出场</span>
                                   {[
                                     { id:"mabreak", label:"均线破位" },
                                     { id:"dollar",  label:"固定金额追踪" },
@@ -787,9 +883,9 @@ export default function App() {
                                     <button key={id} onClick={e => { e.stopPropagation(); setBtMode(id); }}
                                       style={{padding:"3px 9px", fontSize:10, cursor:"pointer",
                                         fontFamily:"inherit", borderRadius:5,
-                                        background: btMode===id ? "#001a4a" : "transparent",
-                                        border:`1px solid ${btMode===id ? "#4499ff" : "#253545"}`,
-                                        color: btMode===id ? "#4499ff" : "#6a8090"}}>
+                                        background: btMode===id ? (darkMode ? "#001a4a" : "#e0eaff") : "transparent",
+                                        border:`1px solid ${btMode===id ? "#4488ee" : T.borderSub}`,
+                                        color: btMode===id ? "#4488ee" : T.textMuted}}>
                                       {label}
                                     </button>
                                   ))}
@@ -800,66 +896,66 @@ export default function App() {
                                   const r = backtest(row.closes, row.highs, row.lows, ma, btEntry, btMode, row.vol20 ?? 0);
                                   const hasData = r && r.n > 0;
                                   return (
-                                    <div key={ma} style={{padding:"10px 16px", background:"#0a1520",
-                                      border:`1px solid ${hasData ? "#253545" : "#182030"}`,
+                                    <div key={ma} style={{padding:"10px 16px", background:T.cardBg2,
+                                      border:`1px solid ${hasData ? T.borderSub : T.border}`,
                                       borderRadius:7, minWidth:128}}>
-                                      <div style={{fontSize:10, color:"#4499ff", letterSpacing:1, marginBottom:6, fontWeight:600}}>
+                                      <div style={{fontSize:10, color:"#4488ee", letterSpacing:1, marginBottom:6, fontWeight:600}}>
                                         {ma}日均线
                                         {btMode === "dollar" && hasData && (
-                                          <span style={{marginLeft:6, color:"#7a9aaa", fontWeight:400}}>
+                                          <span style={{marginLeft:6, color:T.textSub, fontWeight:400}}>
                                             追踪{(r.dollarTrailPct*100).toFixed(0)}%
                                           </span>
                                         )}
                                       </div>
                                       {!hasData ? (
-                                        <div style={{fontSize:11, color:"#405870"}}>
+                                        <div style={{fontSize:11, color:T.textVMuted}}>
                                           {r ? "无触发信号" : "数据不足"}
                                         </div>
                                       ) : (<>
-                                        <div style={{fontSize:11, color:"#6a8090", marginBottom:4}}>
-                                          触发 <span style={{color:"#c0d0e0", fontWeight:600}}>{r.n}</span> 次
-                                          <span style={{marginLeft:6, color:"#405870"}}>均持 {r.avgDays}日</span>
+                                        <div style={{fontSize:11, color:T.textMuted, marginBottom:4}}>
+                                          触发 <span style={{color:T.text, fontWeight:600}}>{r.n}</span> 次
+                                          <span style={{marginLeft:6, color:T.textVMuted}}>均持 {r.avgDays}日</span>
                                         </div>
                                         <div style={{fontSize:16, fontWeight:700, fontFamily:"monospace",
-                                          color: r.avgRet >= 0 ? "#00ff88" : "#ff3344"}}>
+                                          color: r.avgRet >= 0 ? "#00c96e" : "#ee3344"}}>
                                           {fmtPct(r.avgRet)}
                                         </div>
-                                        <div style={{fontSize:10, color:"#6a8090", marginTop:2}}>平均收益</div>
+                                        <div style={{fontSize:10, color:T.textMuted, marginTop:2}}>平均收益</div>
                                         <div style={{marginTop:6, fontSize:11,
-                                          color: r.winRate >= 60 ? "#00cc66" : r.winRate >= 45 ? "#aaaa44" : "#ff6633"}}>
+                                          color: r.winRate >= 60 ? "#00aa44" : r.winRate >= 45 ? "#aaaa33" : "#ee5522"}}>
                                           胜率 {r.winRate.toFixed(0)}%
                                         </div>
-                                        <div style={{fontSize:10, color:"#405870", marginTop:4}}>
-                                          最好 <span style={{color:"#00ff88"}}>{fmtPct(r.best)}</span>
+                                        <div style={{fontSize:10, color:T.textVMuted, marginTop:4}}>
+                                          最好 <span style={{color:"#00c96e"}}>{fmtPct(r.best)}</span>
                                           {" · "}
-                                          最差 <span style={{color:"#ff3344"}}>{fmtPct(r.worst)}</span>
+                                          最差 <span style={{color:"#ee3344"}}>{fmtPct(r.worst)}</span>
                                         </div>
                                       </>)}
                                     </div>
                                   );
                                 })}
                               </div>
-                              <div style={{fontSize:10, color:"#405870", marginTop:8}}>
+                              <div style={{fontSize:10, color:T.textVMuted, marginTop:8}}>
                                 冲量确认 = Elder冲量系统绿色信号（13EMA↑ + MACD柱↑）· ATR = 14日真实波幅 · 固定金额追踪 = 买入价×20/30% · 不含手续费 · 仅供参考
                               </div>
                             </div>
 
                             {/* 止损计算器 */}
-                            <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
-                              <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:8}}>
+                            <div style={{marginTop:16, paddingTop:14, borderTop:`1px solid ${T.border}`}}>
+                              <div style={{fontSize:10, color:T.textSub, letterSpacing:1.2, marginBottom:8}}>
                                 止损参考 — 输入你的买入价格
                               </div>
                               <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
-                                <span style={{fontSize:11, color:"#6a8090"}}>买入价 $</span>
+                                <span style={{fontSize:11, color:T.textMuted}}>买入价 $</span>
                                 <input
                                   type="number"
                                   placeholder="例如 150.00"
                                   value={costBasis[row.symbol] ?? ""}
                                   onChange={e => setCostBasis(cb => ({...cb, [row.symbol]: e.target.value}))}
                                   onClick={e => e.stopPropagation()}
-                                  style={{width:110, padding:"4px 8px", background:"#0a1520",
-                                    border:"1px solid #253545", borderRadius:4,
-                                    color:"#c0d0e0", fontFamily:"inherit", fontSize:12}}
+                                  style={{width:110, padding:"4px 8px", background:T.inputBg,
+                                    border:`1px solid ${T.borderSub}`, borderRadius:4,
+                                    color:T.text, fontFamily:"inherit", fontSize:12}}
                                 />
                                 {costBasis[row.symbol] && (() => {
                                   const buy = parseFloat(costBasis[row.symbol]);
@@ -870,24 +966,26 @@ export default function App() {
                                   const triggered = cur > 0 && cur <= stopPrice;
                                   return (
                                     <div style={{display:"flex", gap:16, alignItems:"center", flexWrap:"wrap", fontSize:11}}>
-                                      <span style={{color:"#6a8090"}}>
-                                        止损价: <span style={{color:"#ff6633", fontFamily:"monospace"}}>${stopPrice.toFixed(2)}</span>
+                                      <span style={{color:T.textMuted}}>
+                                        止损价: <span style={{color:"#ee5522", fontFamily:"monospace"}}>${stopPrice.toFixed(2)}</span>
                                       </span>
-                                      <span style={{color:"#6a8090"}}>
+                                      <span style={{color:T.textMuted}}>
                                         现价距买入: <span style={{fontFamily:"monospace",
-                                          color: pctFromBuy >= 0 ? "#00ff88" : "#ff3344"}}>
+                                          color: pctFromBuy >= 0 ? "#00c96e" : "#ee3344"}}>
                                           {fmtPct(pctFromBuy)}
                                         </span>
                                       </span>
                                       {triggered ? (
                                         <span style={{padding:"2px 10px", borderRadius:4,
-                                          background:"#3a0000", border:"1px solid #ff3344",
-                                          color:"#ff3344", fontWeight:700}}>
+                                          background: darkMode ? "#3a0000" : "#fff0f0",
+                                          border:"1px solid #ee3344",
+                                          color:"#ee3344", fontWeight:700}}>
                                           ⚠ 止损触发，建议卖出
                                         </span>
                                       ) : (
                                         <span style={{padding:"2px 10px", borderRadius:4,
-                                          background:"#003a1a", border:"1px solid #00cc66", color:"#00ff88"}}>
+                                          background: darkMode ? "#003a1a" : "#d0ffea",
+                                          border:"1px solid #00aa55", color:"#00aa55"}}>
                                           持有中
                                         </span>
                                       )}
@@ -895,7 +993,7 @@ export default function App() {
                                   );
                                 })()}
                               </div>
-                              <div style={{fontSize:10, color:"#405870", marginTop:6}}>
+                              <div style={{fontSize:10, color:T.textVMuted, marginTop:6}}>
                                 止损线 = 买入价 × 91%（-9%触发）· 仅供参考，不构成投资建议
                               </div>
                             </div>
@@ -915,11 +1013,11 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap');
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.25}}
         *{box-sizing:border-box}
-        ::-webkit-scrollbar{width:5px;height:5px;background:#070c12}
-        ::-webkit-scrollbar-thumb{background:#182030;border-radius:3px}
-        tbody tr:hover td{background:#0d1828!important}
+        ::-webkit-scrollbar{width:5px;height:5px;background:${T.scrollBg}}
+        ::-webkit-scrollbar-thumb{background:${T.scrollThumb};border-radius:3px}
+        .data-row:hover td{background:${T.rowHover}!important}
         button:hover{opacity:0.8}
-        input:focus{border-color:#005bcc!important}
+        input:focus{border-color:#005bcc!important;outline:none}
       `}</style>
     </div>
   );
