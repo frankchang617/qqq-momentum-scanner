@@ -161,6 +161,39 @@ function calcSharpe(ret, vol) {
   return ret / vol;
 }
 
+// 回测：回调至 maDays 均线买入，持有 holdDays 日或触发 stop 止损
+function backtest(closes, maDays, holdDays = 20, stop = 0.09) {
+  if (!closes || closes.length < maDays + holdDays + 10) return null;
+  const trades = [];
+  for (let i = maDays + 1; i < closes.length - holdDays - 1; i++) {
+    const ma     = closes.slice(i - maDays, i).reduce((a, b) => a + b, 0) / maDays;
+    const prevMa = closes.slice(i - maDays - 1, i - 1).reduce((a, b) => a + b, 0) / maDays;
+    const cur = closes[i], prev = closes[i - 1];
+    // 信号：前一天在均线上方 1%，当天拉回至均线 -3% ~ +2% 区间
+    if (prev < prevMa * 1.01) continue;
+    if (cur > ma * 1.02 || cur < ma * 0.97) continue;
+    const entry = closes[i + 1];
+    if (!entry) continue;
+    let exit = closes[i + 1 + holdDays], exitDay = holdDays;
+    for (let j = 1; j <= holdDays; j++) {
+      const p = closes[i + 1 + j];
+      if (!p) break;
+      if (p <= entry * (1 - stop)) { exit = p; exitDay = j; break; }
+    }
+    if (!exit) continue;
+    trades.push((exit - entry) / entry * 100);
+  }
+  if (!trades.length) return { n: 0 };
+  const wins = trades.filter(r => r > 0).length;
+  return {
+    n: trades.length,
+    winRate: wins / trades.length * 100,
+    avgRet: trades.reduce((a, b) => a + b, 0) / trades.length,
+    best:   Math.max(...trades),
+    worst:  Math.min(...trades),
+  };
+}
+
 export default function App() {
   const [results,     setResults]     = useState([]);
   const [loading,     setLoading]     = useState(false);
@@ -195,8 +228,8 @@ export default function App() {
         try {
           const raw = await fetchCandles(sym, signal);
           if (!raw) return { symbol:sym, error:true };
-          // Keep only 202 days — enough for 200D metrics and 60D sparkline
-          const closes = raw.slice(-202);
+          // Keep full year — 252 days for backtest coverage + 200D metrics
+          const closes = raw.slice(-252);
           const ret20    = calcReturn(closes, 20);
           const ret50    = calcReturn(closes, 50);
           const ret200   = calcReturn(closes, 200);
@@ -555,6 +588,54 @@ export default function App() {
                                 ))}
                               </div>
                             </div>
+                            {/* 回测面板 */}
+                            <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
+                              <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:10}}>
+                                回测 — 回调至均线买入（持有20日 / 止损-9%）· 过去1年日线数据
+                              </div>
+                              <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                                {[5, 20, 50, 200].map(ma => {
+                                  const r = backtest(row.closes, ma);
+                                  const hasData = r && r.n > 0;
+                                  return (
+                                    <div key={ma} style={{padding:"10px 16px", background:"#0a1520",
+                                      border:`1px solid ${hasData ? "#253545" : "#182030"}`,
+                                      borderRadius:7, minWidth:128}}>
+                                      <div style={{fontSize:10, color:"#4499ff", letterSpacing:1, marginBottom:6, fontWeight:600}}>
+                                        {ma}日均线
+                                      </div>
+                                      {!hasData ? (
+                                        <div style={{fontSize:11, color:"#405870"}}>
+                                          {r ? "无触发信号" : "数据不足"}
+                                        </div>
+                                      ) : (<>
+                                        <div style={{fontSize:11, color:"#6a8090", marginBottom:4}}>
+                                          触发 <span style={{color:"#c0d0e0", fontWeight:600}}>{r.n}</span> 次
+                                        </div>
+                                        <div style={{fontSize:16, fontWeight:700, fontFamily:"monospace",
+                                          color: r.avgRet >= 0 ? "#00ff88" : "#ff3344"}}>
+                                          {fmtPct(r.avgRet)}
+                                        </div>
+                                        <div style={{fontSize:10, color:"#6a8090", marginTop:2}}>平均收益</div>
+                                        <div style={{marginTop:6, fontSize:11,
+                                          color: r.winRate >= 55 ? "#00cc66" : r.winRate >= 45 ? "#aaaa44" : "#ff6633"}}>
+                                          胜率 {r.winRate.toFixed(0)}%
+                                        </div>
+                                        <div style={{fontSize:10, color:"#405870", marginTop:4}}>
+                                          最好 <span style={{color:"#00ff88"}}>{fmtPct(r.best)}</span>
+                                          {" · "}
+                                          最差 <span style={{color:"#ff3344"}}>{fmtPct(r.worst)}</span>
+                                        </div>
+                                      </>)}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div style={{fontSize:10, color:"#405870", marginTop:8}}>
+                                不含手续费和滑点 · 样本量小，仅供参考，不构成投资建议
+                              </div>
+                            </div>
+
                             {/* 止损计算器 */}
                             <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
                               <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:8}}>
