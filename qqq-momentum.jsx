@@ -170,6 +170,8 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [expandedSym, setExpandedSym] = useState(null);
   const [filters,     setFilters]     = useState({ allPositive:false, minRet20:false, minSharpe50:false });
+  const [qqqData,     setQqqData]     = useState(null);
+  const [costBasis,   setCostBasis]   = useState({});
   const abortRef   = useRef(null);
 
   const toggleFilter = useCallback(key =>
@@ -227,8 +229,23 @@ export default function App() {
     runScan();
   }, [runScan]);
 
+  // 单独获取 QQQ 自身数据作为大盘指标
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchCandles("QQQ", controller.signal).then(raw => {
+      if (!raw) return;
+      const closes = raw.slice(-202);
+      const ret20  = calcReturn(closes, 20);
+      const ret200 = calcReturn(closes, 200);
+      const ma200  = closes.slice(-200).reduce((a, b) => a + b, 0) / 200;
+      const price  = closes.at(-1);
+      setQqqData({ ret20, ret200, ma200, price, aboveMA200: price > ma200 });
+    }).catch(() => {});
+    return () => controller.abort();
+  }, []);
 
-  const { sorted, passCount, mAbs20, mAbs50, mAbs200 } = useMemo(() => {
+
+  const { sorted, passCount, mAbs20, mAbs50, mAbs200, rankMap } = useMemo(() => {
     // 200日涨幅第25百分位（用于极端尾部判断）
     const ret200vals = results.map(r => r.ret200 ?? 0).sort((a,b) => a-b);
     const p25 = ret200vals[Math.floor(ret200vals.length * 0.25)] ?? -Infinity;
@@ -237,7 +254,6 @@ export default function App() {
     if (filters.allPositive) filterFns.push(r => (r.ret20??-1)>0 && (r.ret50??-1)>0 && (r.ret200??-1)>0);
     if (filters.minRet20)    filterFns.push(r => (r.ret20??0) >= 20);
     if (filters.minSharpe50) filterFns.push(r => (r.sharpe50??0) >= 1.0);
-    // 始终剔除 200 日极端尾部（仅当任一过滤器开启时）
     if (filterFns.length > 0) filterFns.push(r => (r.ret200??0) > p25);
 
     const base = [...results].filter(r => r[sortKey] != null && !isNaN(r[sortKey]));
@@ -246,6 +262,12 @@ export default function App() {
       .filter(r => filterFns.every(fn => fn(r)))
       .sort((a, b) => (b[sortKey] ?? -999) - (a[sortKey] ?? -999))
       .slice(0, topN);
+
+    // 全量按综合得分排名（不受过滤器影响，用于判断买入条件）
+    const allRanked = [...results]
+      .filter(r => !r.error && r.score != null)
+      .sort((a, b) => b.score - a.score);
+    const rankMap = new Map(allRanked.map((r, i) => [r.symbol, i + 1]));
 
     let mAbs20 = 1, mAbs50 = 1, mAbs200 = 1;
     for (const r of results) {
@@ -256,7 +278,7 @@ export default function App() {
       if (a50  > mAbs50)  mAbs50  = a50;
       if (a200 > mAbs200) mAbs200 = a200;
     }
-    return { sorted, passCount, mAbs20, mAbs50, mAbs200 };
+    return { sorted, passCount, mAbs20, mAbs50, mAbs200, rankMap };
   }, [results, sortKey, topN, filters]);
 
   const { breadthPos, breadthNeg, avgRet20 } = useMemo(() => {
@@ -343,6 +365,19 @@ export default function App() {
                 </div>
               </div>
             ))}
+            {qqqData && (
+              <div style={{padding:"10px 18px", background:"#0b1320",
+                border:`1px solid ${qqqData.aboveMA200 ? "#00ff8844" : "#ff334444"}`, borderRadius:8, minWidth:150}}>
+                <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1, marginBottom:3}}>QQQ 大盘状态</div>
+                <div style={{fontSize:18, fontWeight:700, fontFamily:"monospace",
+                  color: qqqData.aboveMA200 ? "#00ff88" : "#ff3344"}}>
+                  {qqqData.aboveMA200 ? "▲ 趋势健康" : "▼ 趋势偏弱"}
+                </div>
+                <div style={{fontSize:10, color:"#6a8090", marginTop:2}}>
+                  {qqqData.aboveMA200 ? "价格高于200日均线" : "⚠️ 价格低于200日均线，谨慎买入"}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -416,7 +451,7 @@ export default function App() {
             <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
               <thead>
                 <tr style={{borderBottom:"1px solid #182030"}}>
-                  {["#","代码","现价","60日走势","综合得分","一致性","20日涨幅","50日涨幅","200日涨幅","20日夏普","50日夏普"].map(h => (
+                  {["#","代码","现价","60日走势","综合得分","信号","一致性","20日涨幅","50日涨幅","200日涨幅","20日夏普","50日夏普"].map(h => (
                     <th key={h} style={{padding:"9px 10px", textAlign:"left", color:"#7a9aaa",
                       fontWeight:500, fontSize:10, letterSpacing:1.2, whiteSpace:"nowrap"}}>{h}</th>
                   ))}
@@ -450,6 +485,25 @@ export default function App() {
                           <Sparkline closes={row.closes} width={100} height={34} days={60}/>
                         </td>
                         <td style={tdStyle}><ScoreBadge score={row.score}/></td>
+                        <td style={tdStyle}>{(() => {
+                          const rank = rankMap.get(row.symbol) ?? 999;
+                          const allPos = (row.ret20??-1)>0 && (row.ret50??-1)>0 && (row.ret200??-1)>0;
+                          const buyOK = rank <= 15 && allPos && (row.sharpe50??0) >= 1.0 && (row.ret20??0) <= 60;
+                          const avoidOK = (row.ret200??0) > 200 || !allPos;
+                          if (buyOK) return (
+                            <span style={{padding:"3px 8px", borderRadius:4, fontSize:10, fontWeight:700,
+                              background:"#003a1a", border:"1px solid #00cc66", color:"#00ff88", whiteSpace:"nowrap"}}>
+                              买入参考
+                            </span>
+                          );
+                          if (avoidOK) return (
+                            <span style={{padding:"3px 8px", borderRadius:4, fontSize:10, fontWeight:700,
+                              background:"#2a1000", border:"1px solid #cc6600", color:"#ff9944", whiteSpace:"nowrap"}}>
+                              观望
+                            </span>
+                          );
+                          return <span style={{color:"#405870", fontSize:11}}>—</span>;
+                        })()}</td>
                         <td style={{...tdStyle, whiteSpace:"nowrap"}}>
                           {[row.ret20, row.ret50, row.ret200].map((v, di) => (
                             <span key={di} title={["20D","50D","200D"][di]}
@@ -469,7 +523,7 @@ export default function App() {
                       </tr>
                       {isExp && (
                         <tr style={{background:"#0d1c2e", borderBottom:"1px solid #182030"}}>
-                          <td colSpan={11} style={{padding:"20px 24px"}}>
+                          <td colSpan={12} style={{padding:"20px 24px"}}>
                             <div style={{display:"flex", gap:32, flexWrap:"wrap", alignItems:"flex-start"}}>
                               <div>
                                 <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1, marginBottom:8}}>
@@ -499,6 +553,61 @@ export default function App() {
                                     <div style={{fontSize:15, fontWeight:700, color:s.color, fontFamily:"monospace"}}>{s.val}</div>
                                   </div>
                                 ))}
+                              </div>
+                            </div>
+                            {/* 止损计算器 */}
+                            <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
+                              <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:8}}>
+                                止损参考 — 输入你的买入价格
+                              </div>
+                              <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
+                                <span style={{fontSize:11, color:"#6a8090"}}>买入价 $</span>
+                                <input
+                                  type="number"
+                                  placeholder="例如 150.00"
+                                  value={costBasis[row.symbol] ?? ""}
+                                  onChange={e => setCostBasis(cb => ({...cb, [row.symbol]: e.target.value}))}
+                                  onClick={e => e.stopPropagation()}
+                                  style={{width:110, padding:"4px 8px", background:"#0a1520",
+                                    border:"1px solid #253545", borderRadius:4,
+                                    color:"#c0d0e0", fontFamily:"inherit", fontSize:12}}
+                                />
+                                {costBasis[row.symbol] && (() => {
+                                  const buy = parseFloat(costBasis[row.symbol]);
+                                  if (!buy || isNaN(buy)) return null;
+                                  const stopPrice = buy * 0.91;
+                                  const cur = row.price ?? 0;
+                                  const pctFromBuy = ((cur - buy) / buy) * 100;
+                                  const triggered = cur > 0 && cur <= stopPrice;
+                                  return (
+                                    <div style={{display:"flex", gap:16, alignItems:"center", flexWrap:"wrap", fontSize:11}}>
+                                      <span style={{color:"#6a8090"}}>
+                                        止损价: <span style={{color:"#ff6633", fontFamily:"monospace"}}>${stopPrice.toFixed(2)}</span>
+                                      </span>
+                                      <span style={{color:"#6a8090"}}>
+                                        现价距买入: <span style={{fontFamily:"monospace",
+                                          color: pctFromBuy >= 0 ? "#00ff88" : "#ff3344"}}>
+                                          {fmtPct(pctFromBuy)}
+                                        </span>
+                                      </span>
+                                      {triggered ? (
+                                        <span style={{padding:"2px 10px", borderRadius:4,
+                                          background:"#3a0000", border:"1px solid #ff3344",
+                                          color:"#ff3344", fontWeight:700}}>
+                                          ⚠ 止损触发，建议卖出
+                                        </span>
+                                      ) : (
+                                        <span style={{padding:"2px 10px", borderRadius:4,
+                                          background:"#003a1a", border:"1px solid #00cc66", color:"#00ff88"}}>
+                                          持有中
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                              <div style={{fontSize:10, color:"#405870", marginTop:6}}>
+                                止损线 = 买入价 × 91%（-9%触发）· 仅供参考，不构成投资建议
                               </div>
                             </div>
                           </td>
