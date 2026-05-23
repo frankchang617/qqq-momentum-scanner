@@ -474,6 +474,7 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
   const symbols = [...histData.keys()];
   // 确保有足够的回望数据（200日均线）
   const simStart = Math.max(rangeStart, 205);
+  console.log('[BT] symbols:', symbols.length, 'N:', N, 'simStart:', simStart, 'params:', JSON.stringify(params));
   if (simStart >= N - 10) return { equityCurve:[1], timestamps:[], turnoverCount:0, simStart };
 
   const equityCurve = [];
@@ -495,6 +496,7 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
         inMarket = qqqCloses[d] != null && qqqCloses[d] > ma200;
       }
 
+      console.log(`[BT] rebal t=${t} d=${d} inMarket=${inMarket} holdingsBefore=${holdings.size}`);
       if (!inMarket) {
         turnoverCount += holdings.size;
         holdings = new Set();
@@ -516,6 +518,7 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
           return score!=null ? { sym, score } : null;
         }).filter(Boolean).sort((a,b)=>b.score-a.score);
 
+        console.log(`[BT]   ranked=${ranked.length} top3:`, ranked.slice(0,3).map(r=>r.sym));
         const topSet    = new Set(ranked.slice(0, topN).map(r=>r.sym));
         const bufferSet = new Set(ranked.slice(0, bufferN).map(r=>r.sym));
         const newH = new Set();
@@ -523,6 +526,7 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
         for (const s of topSet) { newH.add(s); }
         for (const s of newH) { if (!holdings.has(s)) turnoverCount++; }
         holdings = newH;
+        console.log(`[BT]   holdingsAfter=${holdings.size} turnover=${turnoverCount}`);
       }
     }
 
