@@ -18,14 +18,13 @@ async function fetchYahooCrumb() {
   try {
     const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
     const init = await httpsGet("https://fc.yahoo.com/", { "User-Agent": ua });
-    const cookie = init.cookies;
     const crumbRes = await httpsGet("https://query2.finance.yahoo.com/v1/test/getcrumb", {
       "User-Agent": ua,
-      "Cookie": cookie,
+      "Cookie": init.cookies,
     });
     const crumb = crumbRes.body.trim();
     console.log(`[yahoo] crumb ready: ${crumb.slice(0, 6)}…`);
-    return { crumb, cookie };
+    return { crumb, cookie: init.cookies };
   } catch (e) {
     console.warn("[yahoo] crumb fetch failed:", e.message);
     return { crumb: "", cookie: "" };
@@ -36,28 +35,35 @@ export default defineConfig(async () => {
   const yahoo = await fetchYahooCrumb();
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: "yahoo-dev-proxy",
+        configureServer(server) {
+          server.middlewares.use("/api/yahoo", async (req, res) => {
+            const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+            const params = new URLSearchParams(qs);
+            const symbol = params.get("symbol");
+            if (!symbol) { res.statusCode = 400; res.end("symbol required"); return; }
+            try {
+              const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
+              const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y&crumb=${encodeURIComponent(yahoo.crumb)}`;
+              const data = await httpsGet(url, { "User-Agent": ua, "Cookie": yahoo.cookie, "Accept": "application/json" });
+              res.setHeader("Content-Type", "application/json");
+              res.statusCode = 200;
+              res.end(data.body);
+            } catch (e) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: e.message }));
+            }
+          });
+        },
+      },
+    ],
     server: {
       open: false,
       port: 5174,
       strictPort: true,
-      proxy: {
-        "/yahoo": {
-          target: "https://query2.finance.yahoo.com",
-          changeOrigin: true,
-          rewrite: (path) => {
-            const stripped = path.replace(/^\/yahoo/, "");
-            return yahoo.crumb ? `${stripped}&crumb=${encodeURIComponent(yahoo.crumb)}` : stripped;
-          },
-          configure: (proxy) => {
-            proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.setHeader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36");
-              proxyReq.setHeader("Accept", "application/json, text/plain, */*");
-              if (yahoo.cookie) proxyReq.setHeader("Cookie", yahoo.cookie);
-            });
-          },
-        },
-      },
     },
   };
 });
