@@ -161,10 +161,15 @@ function calcSharpe(ret, vol) {
   return ret / vol;
 }
 
-// 回测：回调至 maDays 均线买入，三种出场模式
+// 回测：回调至 maDays 均线买入，四种出场模式
 // exitMode: "mabreak"=均线破位出 | "trail7"=追踪止损7% | "fixed20"=固定20日
-function backtest(closes, maDays, exitMode = "mabreak") {
+//           "dollar"=固定金额追踪（买入价×20%或30%，由vol20决定）
+// vol20: 20日年化波动率（%），用于 dollar 模式判断高低波动
+function backtest(closes, maDays, exitMode = "mabreak", vol20 = 0) {
   const STOP = 0.09, MAX_DAYS = 120, TRAIL = 0.07;
+  // vol20 > 50% → 高波动 → 追踪距离 = 买入价×30%；否则×20%
+  const dollarTrailPct = (vol20 > 50) ? 0.30 : 0.20;
+
   if (!closes || closes.length < maDays + 20 + 5) return null;
 
   // O(n) 预计算 MA 数组
@@ -188,6 +193,9 @@ function backtest(closes, maDays, exitMode = "mabreak") {
     const entry = closes[i + 1];
     if (!entry) continue;
 
+    // 固定金额追踪：追踪距离 = 买入价 × dollarTrailPct（整个持仓期固定不变）
+    const dollarTrailAmt = entry * dollarTrailPct;
+
     let exit = null, exitDay = 0, peak = entry;
     const limit = Math.min(MAX_DAYS, closes.length - i - 3);
 
@@ -196,11 +204,12 @@ function backtest(closes, maDays, exitMode = "mabreak") {
       const p = closes[k];
       if (!p) { exit = closes[k - 1]; exitDay = j - 1; break; }
       if (p > peak) peak = p;
-      if (p <= entry * (1 - STOP))                           { exit = p; exitDay = j; break; }
-      if (exitMode === "fixed20"  && j === 20)               { exit = p; exitDay = j; break; }
-      if (exitMode === "mabreak"  && maArr[k] && p < maArr[k]) { exit = p; exitDay = j; break; }
-      if (exitMode === "trail7"   && p <= peak * (1 - TRAIL)){ exit = p; exitDay = j; break; }
-      if (j === limit)                                        { exit = p; exitDay = j; }
+      if (p <= entry * (1 - STOP))                              { exit = p; exitDay = j; break; }
+      if (exitMode === "fixed20"  && j === 20)                  { exit = p; exitDay = j; break; }
+      if (exitMode === "mabreak"  && maArr[k] && p < maArr[k])  { exit = p; exitDay = j; break; }
+      if (exitMode === "trail7"   && p <= peak * (1 - TRAIL))   { exit = p; exitDay = j; break; }
+      if (exitMode === "dollar"   && p <= peak - dollarTrailAmt) { exit = p; exitDay = j; break; }
+      if (j === limit)                                           { exit = p; exitDay = j; }
     }
 
     if (!exit) continue;
@@ -210,12 +219,13 @@ function backtest(closes, maDays, exitMode = "mabreak") {
   if (!trades.length) return { n: 0 };
   const wins = trades.filter(t => t.ret > 0).length;
   return {
-    n:       trades.length,
-    winRate: wins / trades.length * 100,
-    avgRet:  trades.reduce((a, t) => a + t.ret, 0) / trades.length,
-    avgDays: Math.round(trades.reduce((a, t) => a + t.days, 0) / trades.length),
-    best:    Math.max(...trades.map(t => t.ret)),
-    worst:   Math.min(...trades.map(t => t.ret)),
+    n:            trades.length,
+    winRate:      wins / trades.length * 100,
+    avgRet:       trades.reduce((a, t) => a + t.ret, 0) / trades.length,
+    avgDays:      Math.round(trades.reduce((a, t) => a + t.days, 0) / trades.length),
+    best:         Math.max(...trades.map(t => t.ret)),
+    worst:        Math.min(...trades.map(t => t.ret)),
+    dollarTrailPct,  // 实际使用的追踪比例（仅 dollar 模式有意义）
   };
 }
 
@@ -623,6 +633,7 @@ export default function App() {
                                 <div style={{display:"flex", gap:5}}>
                                   {[
                                     { id:"mabreak",  label:"均线破位出" },
+                                    { id:"dollar",   label:"固定金额追踪" },
                                     { id:"trail7",   label:"追踪止损7%" },
                                     { id:"fixed20",  label:"固定20日"   },
                                   ].map(({ id, label }) => (
@@ -640,7 +651,7 @@ export default function App() {
                               </div>
                               <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
                                 {[5, 20, 50, 200].map(ma => {
-                                  const r = backtest(row.closes, ma, btMode);
+                                  const r = backtest(row.closes, ma, btMode, row.vol20 ?? 0);
                                   const hasData = r && r.n > 0;
                                   return (
                                     <div key={ma} style={{padding:"10px 16px", background:"#0a1520",
@@ -648,6 +659,11 @@ export default function App() {
                                       borderRadius:7, minWidth:128}}>
                                       <div style={{fontSize:10, color:"#4499ff", letterSpacing:1, marginBottom:6, fontWeight:600}}>
                                         {ma}日均线
+                                        {btMode === "dollar" && hasData && (
+                                          <span style={{marginLeft:6, color:"#7a9aaa", fontWeight:400}}>
+                                            追踪{(r.dollarTrailPct*100).toFixed(0)}%
+                                          </span>
+                                        )}
                                       </div>
                                       {!hasData ? (
                                         <div style={{fontSize:11, color:"#405870"}}>
@@ -678,7 +694,7 @@ export default function App() {
                                 })}
                               </div>
                               <div style={{fontSize:10, color:"#405870", marginTop:8}}>
-                                均线破位出 = 价格跌破入场均线时平仓 · 追踪止损 = 从阶段高点回落7%平仓 · 不含手续费 · 仅供参考
+                                均线破位出 = 收盘跌破入场均线平仓 · 固定金额追踪 = 从高点下跌超过买入价×20%（低波动）或×30%（高波动）时平仓 · 追踪止损7% = 从高点跌7%平仓 · 不含手续费 · 仅供参考
                               </div>
                             </div>
 
