@@ -629,8 +629,9 @@ function runWFO(histData, commonTs, qqqCloses) {
 
   const windows=[];
   let pos=0;
-  while (pos+inDays+outDays <= N) {
-    windows.push({ inStart:pos, inEnd:pos+inDays, outStart:pos+inDays, outEnd:Math.min(pos+inDays+outDays,N) });
+  while (pos+inDays+60 < N) {
+    const outEnd = Math.min(pos+inDays+outDays, N);
+    windows.push({ inStart:pos, inEnd:pos+inDays, outStart:pos+inDays, outEnd });
     pos+=outDays;
   }
   if (!windows.length) return null;
