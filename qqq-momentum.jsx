@@ -161,36 +161,61 @@ function calcSharpe(ret, vol) {
   return ret / vol;
 }
 
-// 回测：回调至 maDays 均线买入，持有 holdDays 日或触发 stop 止损
-function backtest(closes, maDays, holdDays = 20, stop = 0.09) {
-  if (!closes || closes.length < maDays + holdDays + 10) return null;
+// 回测：回调至 maDays 均线买入，三种出场模式
+// exitMode: "mabreak"=均线破位出 | "trail7"=追踪止损7% | "fixed20"=固定20日
+function backtest(closes, maDays, exitMode = "mabreak") {
+  const STOP = 0.09, MAX_DAYS = 120, TRAIL = 0.07;
+  if (!closes || closes.length < maDays + 20 + 5) return null;
+
+  // O(n) 预计算 MA 数组
+  const maArr = new Array(closes.length).fill(null);
+  let sum = 0;
+  for (let k = 0; k < closes.length; k++) {
+    sum += closes[k];
+    if (k >= maDays) sum -= closes[k - maDays];
+    if (k >= maDays - 1) maArr[k] = sum / maDays;
+  }
+
   const trades = [];
-  for (let i = maDays + 1; i < closes.length - holdDays - 1; i++) {
-    const ma     = closes.slice(i - maDays, i).reduce((a, b) => a + b, 0) / maDays;
-    const prevMa = closes.slice(i - maDays - 1, i - 1).reduce((a, b) => a + b, 0) / maDays;
+  for (let i = maDays + 1; i < closes.length - 5; i++) {
+    const ma = maArr[i], prevMa = maArr[i - 1];
+    if (!ma || !prevMa) continue;
     const cur = closes[i], prev = closes[i - 1];
-    // 信号：前一天在均线上方 1%，当天拉回至均线 -3% ~ +2% 区间
+    // 入场：前一天在均线上方 1%，当天拉回至均线 ±2%
     if (prev < prevMa * 1.01) continue;
     if (cur > ma * 1.02 || cur < ma * 0.97) continue;
+
     const entry = closes[i + 1];
     if (!entry) continue;
-    let exit = closes[i + 1 + holdDays], exitDay = holdDays;
-    for (let j = 1; j <= holdDays; j++) {
-      const p = closes[i + 1 + j];
-      if (!p) break;
-      if (p <= entry * (1 - stop)) { exit = p; exitDay = j; break; }
+
+    let exit = null, exitDay = 0, peak = entry;
+    const limit = Math.min(MAX_DAYS, closes.length - i - 3);
+
+    for (let j = 1; j <= limit; j++) {
+      const k = i + 1 + j;
+      const p = closes[k];
+      if (!p) { exit = closes[k - 1]; exitDay = j - 1; break; }
+      if (p > peak) peak = p;
+      if (p <= entry * (1 - STOP))                           { exit = p; exitDay = j; break; }
+      if (exitMode === "fixed20"  && j === 20)               { exit = p; exitDay = j; break; }
+      if (exitMode === "mabreak"  && maArr[k] && p < maArr[k]) { exit = p; exitDay = j; break; }
+      if (exitMode === "trail7"   && p <= peak * (1 - TRAIL)){ exit = p; exitDay = j; break; }
+      if (j === limit)                                        { exit = p; exitDay = j; }
     }
+
     if (!exit) continue;
-    trades.push((exit - entry) / entry * 100);
+    trades.push({ ret: (exit - entry) / entry * 100, days: exitDay });
   }
+
   if (!trades.length) return { n: 0 };
-  const wins = trades.filter(r => r > 0).length;
+  const wins = trades.filter(t => t.ret > 0).length;
   return {
-    n: trades.length,
+    n:       trades.length,
     winRate: wins / trades.length * 100,
-    avgRet: trades.reduce((a, b) => a + b, 0) / trades.length,
-    best:   Math.max(...trades),
-    worst:  Math.min(...trades),
+    avgRet:  trades.reduce((a, t) => a + t.ret, 0) / trades.length,
+    avgDays: Math.round(trades.reduce((a, t) => a + t.days, 0) / trades.length),
+    best:    Math.max(...trades.map(t => t.ret)),
+    worst:   Math.min(...trades.map(t => t.ret)),
   };
 }
 
@@ -205,6 +230,7 @@ export default function App() {
   const [filters,     setFilters]     = useState({ allPositive:false, minRet20:false, minSharpe50:false });
   const [qqqData,     setQqqData]     = useState(null);
   const [costBasis,   setCostBasis]   = useState({});
+  const [btMode,      setBtMode]      = useState("mabreak");
   const abortRef   = useRef(null);
 
   const toggleFilter = useCallback(key =>
@@ -590,12 +616,31 @@ export default function App() {
                             </div>
                             {/* 回测面板 */}
                             <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
-                              <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:10}}>
-                                回测 — 回调至均线买入（持有20日 / 止损-9%）· 过去1年日线数据
+                              <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:10, flexWrap:"wrap"}}>
+                                <span style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2}}>
+                                  回测 — 回调至均线买入 · 止损-9%
+                                </span>
+                                <div style={{display:"flex", gap:5}}>
+                                  {[
+                                    { id:"mabreak",  label:"均线破位出" },
+                                    { id:"trail7",   label:"追踪止损7%" },
+                                    { id:"fixed20",  label:"固定20日"   },
+                                  ].map(({ id, label }) => (
+                                    <button key={id}
+                                      onClick={e => { e.stopPropagation(); setBtMode(id); }}
+                                      style={{padding:"3px 10px", fontSize:10, cursor:"pointer",
+                                        fontFamily:"inherit", borderRadius:5,
+                                        background: btMode===id ? "#001a4a" : "transparent",
+                                        border:`1px solid ${btMode===id ? "#4499ff" : "#253545"}`,
+                                        color: btMode===id ? "#4499ff" : "#6a8090"}}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                               <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
                                 {[5, 20, 50, 200].map(ma => {
-                                  const r = backtest(row.closes, ma);
+                                  const r = backtest(row.closes, ma, btMode);
                                   const hasData = r && r.n > 0;
                                   return (
                                     <div key={ma} style={{padding:"10px 16px", background:"#0a1520",
@@ -611,6 +656,7 @@ export default function App() {
                                       ) : (<>
                                         <div style={{fontSize:11, color:"#6a8090", marginBottom:4}}>
                                           触发 <span style={{color:"#c0d0e0", fontWeight:600}}>{r.n}</span> 次
+                                          <span style={{marginLeft:6, color:"#405870"}}>均持 {r.avgDays}日</span>
                                         </div>
                                         <div style={{fontSize:16, fontWeight:700, fontFamily:"monospace",
                                           color: r.avgRet >= 0 ? "#00ff88" : "#ff3344"}}>
@@ -618,7 +664,7 @@ export default function App() {
                                         </div>
                                         <div style={{fontSize:10, color:"#6a8090", marginTop:2}}>平均收益</div>
                                         <div style={{marginTop:6, fontSize:11,
-                                          color: r.winRate >= 55 ? "#00cc66" : r.winRate >= 45 ? "#aaaa44" : "#ff6633"}}>
+                                          color: r.winRate >= 60 ? "#00cc66" : r.winRate >= 45 ? "#aaaa44" : "#ff6633"}}>
                                           胜率 {r.winRate.toFixed(0)}%
                                         </div>
                                         <div style={{fontSize:10, color:"#405870", marginTop:4}}>
@@ -632,7 +678,7 @@ export default function App() {
                                 })}
                               </div>
                               <div style={{fontSize:10, color:"#405870", marginTop:8}}>
-                                不含手续费和滑点 · 样本量小，仅供参考，不构成投资建议
+                                均线破位出 = 价格跌破入场均线时平仓 · 追踪止损 = 从阶段高点回落7%平仓 · 不含手续费 · 仅供参考
                               </div>
                             </div>
 
