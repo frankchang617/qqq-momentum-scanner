@@ -637,13 +637,14 @@ export default function App() {
         )}
 
         {sorted.length > 0 && (
-          <div style={{overflowX:"auto"}}>
+          <div style={{overflowX:"auto", overflowY:"auto", maxHeight:"70vh"}}>
             <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
               <thead>
                 <tr style={{borderBottom:"1px solid #182030"}}>
                   {["#","代码","现价","60日走势","综合得分","信号","一致性","20日涨幅","50日涨幅","200日涨幅","20日夏普","50日夏普"].map(h => (
                     <th key={h} style={{padding:"9px 10px", textAlign:"left", color:"#7a9aaa",
-                      fontWeight:500, fontSize:10, letterSpacing:1.2, whiteSpace:"nowrap"}}>{h}</th>
+                      fontWeight:500, fontSize:10, letterSpacing:1.2, whiteSpace:"nowrap",
+                      position:"sticky", top:0, background:"#0d1520", zIndex:10}}>{h}</th>
                   ))}
                 </tr>
               </thead>
