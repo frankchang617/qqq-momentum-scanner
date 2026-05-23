@@ -457,10 +457,26 @@ function backtest(closes, highs, lows, maDays, entryMode="touch", exitMode="mabr
   }
   if(!trades.length) return {n:0};
   const wins=trades.filter(t=>t.ret>0).length;
+  // 顺序复利净值曲线
+  let eq=1;
+  for(const t of trades) eq*=(1+t.ret/100);
+  const totalRet=(eq-1)*100;
+  const years=closes.length/252;
+  const cagr=(Math.pow(eq,1/years)-1)*100;
+  // Sharpe（按单笔收益率，按平均持仓天数年化）
+  const rets=trades.map(t=>t.ret/100);
+  const meanR=rets.reduce((a,b)=>a+b,0)/rets.length;
+  const varR=rets.reduce((a,b)=>a+(b-meanR)**2,0)/rets.length;
+  const avgDaysNum=trades.reduce((a,t)=>a+t.days,0)/trades.length;
+  const sharpe=varR>0?(meanR/Math.sqrt(varR))*Math.sqrt(252/avgDaysNum):0;
+  // MDD（从顺序净值曲线）
+  let peak=1,mddVal=0,eqCur=1;
+  for(const t of trades){eqCur*=(1+t.ret/100);if(eqCur>peak)peak=eqCur;const dd=(peak-eqCur)/peak*100;if(dd>mddVal)mddVal=dd;}
   return { n:trades.length, winRate:wins/trades.length*100,
     avgRet:trades.reduce((a,t)=>a+t.ret,0)/trades.length,
     avgDays:Math.round(trades.reduce((a,t)=>a+t.days,0)/trades.length),
-    best:Math.max(...trades.map(t=>t.ret)), worst:Math.min(...trades.map(t=>t.ret)), dollarTrailPct };
+    best:Math.max(...trades.map(t=>t.ret)), worst:Math.min(...trades.map(t=>t.ret)),
+    dollarTrailPct, totalRet, cagr, sharpe, mdd:-mddVal };
 }
 
 // ── 策略回测核心 ──
@@ -708,6 +724,8 @@ export default function App() {
   const [showOpt,     setShowOpt]     = useState(false);
   const [showWfo,     setShowWfo]     = useState(false);
   const [darkMode,    setDarkMode]    = useState(true);
+  const [initCapital, setInitCapital] = useState("100000");
+  const [btCapital,   setBtCapital]   = useState("10000");
   const abortRef    = useRef(null);
   const histAbort   = useRef(null);
   const T = darkMode ? DARK : LIGHT;
@@ -1103,29 +1121,54 @@ export default function App() {
                                     ))}
                                   </div>
                                 </div>
+                                {/* 每笔资金输入 */}
+                                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                                  <span style={{fontSize:11,color:T.textSub}}>每笔入场</span>
+                                  <span style={{fontSize:11,color:T.textMuted}}>$</span>
+                                  <input type="number" value={btCapital} onChange={e=>{e.stopPropagation();setBtCapital(e.target.value);}} onClick={e=>e.stopPropagation()}
+                                    style={{width:100,padding:"3px 8px",background:T.inputBg,border:`1px solid ${T.borderSub}`,borderRadius:4,color:T.text,fontFamily:"inherit",fontSize:12}}/>
+                                </div>
                                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {[5,10,20,50,200].map(ma=>{
                                     const r=backtest(row.closes,row.highs,row.lows,ma,btEntry,btMode,row.vol20??0);
                                     const hasData=r&&r.n>0;
+                                    const cap=parseFloat(btCapital)||0;
+                                    const qqqRet1Y=qqqData?.closes?.length>1?((qqqData.closes.at(-1)-qqqData.closes[0])/qqqData.closes[0]*100):null;
                                     return (
-                                      <div key={ma} style={{padding:"10px 16px",background:T.cardBg2,border:`1px solid ${hasData?T.borderSub:T.border}`,borderRadius:7,minWidth:128}}>
+                                      <div key={ma} style={{padding:"10px 14px",background:T.cardBg2,border:`1px solid ${hasData?T.borderSub:T.border}`,borderRadius:7,minWidth:150}}>
                                         <div style={{fontSize:10,color:"#4488ee",letterSpacing:1,marginBottom:6,fontWeight:600}}>
                                           {ma}日均线{btMode==="dollar"&&hasData&&<span style={{marginLeft:6,color:T.textSub,fontWeight:400}}>追踪{(r.dollarTrailPct*100).toFixed(0)}%</span>}
                                         </div>
                                         {!hasData?<div style={{fontSize:11,color:T.textVMuted}}>{r?"无触发信号":"数据不足"}</div>:(
                                           <>
-                                            <div style={{fontSize:11,color:T.textMuted,marginBottom:4}}>触发 <span style={{color:T.text,fontWeight:600}}>{r.n}</span> 次<span style={{marginLeft:6,color:T.textVMuted}}>均持 {r.avgDays}日</span></div>
+                                            <div style={{fontSize:11,color:T.textMuted,marginBottom:4}}>触发 <span style={{color:T.text,fontWeight:600}}>{r.n}</span> 次 · 均持 {r.avgDays}日</div>
                                             <div style={{fontSize:16,fontWeight:700,fontFamily:"monospace",color:r.avgRet>=0?"#00c96e":"#ee3344"}}>{fmtPct(r.avgRet)}</div>
-                                            <div style={{fontSize:10,color:T.textMuted,marginTop:2}}>平均收益</div>
-                                            <div style={{marginTop:6,fontSize:11,color:r.winRate>=60?"#00aa44":r.winRate>=45?"#aaaa33":"#ee5522"}}>胜率 {r.winRate.toFixed(0)}%</div>
-                                            <div style={{fontSize:10,color:T.textVMuted,marginTop:4}}>最好 <span style={{color:"#00c96e"}}>{fmtPct(r.best)}</span> · 最差 <span style={{color:"#ee3344"}}>{fmtPct(r.worst)}</span></div>
+                                            <div style={{fontSize:10,color:T.textMuted,marginTop:2,marginBottom:6}}>平均收益</div>
+                                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 10px",fontSize:10,marginBottom:6}}>
+                                              <span style={{color:T.textVMuted}}>CAGR</span>
+                                              <span style={{fontFamily:"monospace",color:r.cagr>=0?"#00aa44":"#ee3344"}}>{fmtPct(r.cagr,1)}</span>
+                                              <span style={{color:T.textVMuted}}>Sharpe</span>
+                                              <span style={{fontFamily:"monospace",color:r.sharpe>=1?"#00aa44":r.sharpe>=0?"#aaaa33":"#ee3344"}}>{r.sharpe.toFixed(2)}</span>
+                                              <span style={{color:T.textVMuted}}>MDD</span>
+                                              <span style={{fontFamily:"monospace",color:"#ee3344"}}>{r.mdd.toFixed(1)}%</span>
+                                              {qqqRet1Y!=null&&<><span style={{color:T.textVMuted}}>vs QQQ</span>
+                                              <span style={{fontFamily:"monospace",color:(r.cagr-qqqRet1Y)>=0?"#00aa44":"#ee3344"}}>{fmtPct(r.cagr-qqqRet1Y,1)}</span></>}
+                                            </div>
+                                            <div style={{fontSize:11,color:r.winRate>=60?"#00aa44":r.winRate>=45?"#aaaa33":"#ee5522",marginBottom:4}}>胜率 {r.winRate.toFixed(0)}%</div>
+                                            <div style={{fontSize:10,color:T.textVMuted,marginBottom:cap>0?6:0}}>最好 <span style={{color:"#00c96e"}}>{fmtPct(r.best)}</span> · 最差 <span style={{color:"#ee3344"}}>{fmtPct(r.worst)}</span></div>
+                                            {cap>0&&(()=>{
+                                              const pnl=cap*r.totalRet/100;
+                                              return <div style={{paddingTop:6,borderTop:`1px solid ${T.border}`,fontSize:11,color:T.textMuted}}>
+                                                每笔${(cap/1000).toFixed(0)}K → 总盈亏 <span style={{fontFamily:"monospace",fontWeight:700,color:pnl>=0?"#00aa44":"#ee3344"}}>{pnl>=0?"+":""}{pnl>=1000?`$${(pnl/1000).toFixed(1)}K`:`$${pnl.toFixed(0)}`}</span>
+                                              </div>;
+                                            })()}
                                           </>
                                         )}
                                       </div>
                                     );
                                   })}
                                 </div>
-                                <div style={{fontSize:10,color:T.textVMuted,marginTop:8}}>冲量确认 = Elder冲量系统绿色信号 · ATR = 14日真实波幅 · 不含手续费 · 仅供参考</div>
+                                <div style={{fontSize:10,color:T.textVMuted,marginTop:8}}>CAGR/Sharpe/MDD 基于顺序复利净值曲线 · vs QQQ 为1年涨幅差 · 不含手续费 · 仅供参考</div>
                               </div>
                               {/* 止损计算器 */}
                               <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
@@ -1265,7 +1308,7 @@ export default function App() {
           {stratResult?.metrics&&(
             <div style={{marginBottom:20}}>
               <div style={{fontSize:11,color:T.textSub,letterSpacing:1,marginBottom:12}}>绩效对比</div>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:12}}>
                 <MetricCard label="CAGR（年化收益）" strat={stratResult.metrics.cagr} qqq={stratResult.qqqMetrics?.cagr} unit="%" fmtFn={v=>v.toFixed(1)}/>
                 <MetricCard label="Sharpe Ratio" strat={stratResult.metrics.sharpe} qqq={stratResult.qqqMetrics?.sharpe} fmtFn={v=>v.toFixed(2)}/>
                 <MetricCard label="最大回撤 MDD" strat={stratResult.metrics.mdd} qqq={stratResult.qqqMetrics?.mdd} unit="%" higherBetter={true} fmtFn={v=>v.toFixed(1)}/>
@@ -1276,6 +1319,32 @@ export default function App() {
                   <div style={{fontSize:10,color:T.textMuted,marginTop:2}}>含买入操作</div>
                 </div>
               </div>
+              {/* 资金模拟 */}
+              {(()=>{
+                const c=parseFloat(initCapital);
+                const eq=stratResult.equityCurve;
+                const qEq=stratResult.qqqEq;
+                const finalStrat=!isNaN(c)&&eq?.length?c*eq[eq.length-1]:null;
+                const finalQQQ=!isNaN(c)&&qEq?.length?c*qEq[qEq.length-1]:null;
+                const fmtM=v=>v>=1e6?`${(v/1e6).toFixed(2)}M`:v>=1e3?`${(v/1e3).toFixed(1)}K`:`${v.toFixed(0)}`;
+                return (
+                  <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:16,padding:"10px 16px",background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8}}>
+                    <span style={{fontSize:11,color:T.textSub,whiteSpace:"nowrap"}}>起始资金</span>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontSize:12,color:T.textMuted}}>$</span>
+                      <input type="number" value={initCapital} onChange={e=>setInitCapital(e.target.value)}
+                        style={{width:110,padding:"4px 8px",background:T.inputBg,border:`1px solid ${T.borderSub}`,borderRadius:4,color:T.text,fontFamily:"inherit",fontSize:12}}/>
+                    </div>
+                    {finalStrat!=null&&(
+                      <div style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"center"}}>
+                        <span style={{fontSize:12,color:T.textMuted}}>策略最终:&nbsp;<span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:finalStrat>=c?"#00aa44":"#ee3344"}}>${fmtM(finalStrat)}</span></span>
+                        <span style={{fontSize:12,color:T.textMuted}}>QQQ最终:&nbsp;<span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:finalQQQ!=null&&finalQQQ>=c?"#00aa44":"#ee3344"}}>{finalQQQ!=null?`$${fmtM(finalQQQ)}`:"—"}</span></span>
+                        <span style={{fontSize:11,color:finalStrat>=c?"#00aa44":"#ee3344",fontFamily:"monospace"}}>{finalStrat>=c?"▲":"▼"} {finalQQQ!=null?fmtPct((finalStrat-finalQQQ)/finalQQQ*100):"—"} vs QQQ</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* 净值曲线 */}
               <div style={{background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,padding:"14px 16px",marginBottom:12,overflowX:"auto"}}>
