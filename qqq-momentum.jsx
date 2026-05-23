@@ -892,7 +892,7 @@ export default function App() {
                                 </div>
                               </div>
                               <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-                                {[5, 20, 50, 200].map(ma => {
+                                {[5, 10, 20, 50, 200].map(ma => {
                                   const r = backtest(row.closes, row.highs, row.lows, ma, btEntry, btMode, row.vol20 ?? 0);
                                   const hasData = r && r.n > 0;
                                   return (
