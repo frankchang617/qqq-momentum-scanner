@@ -803,11 +803,12 @@ export default function App() {
   },[histRange]);
 
   // 运行单次策略回测
-  const runStratBacktest = useCallback(()=>{
+  const runStratBacktest = useCallback((overrideParams)=>{
     if(!histData||!histTs) return;
+    const params = overrideParams ?? stratParams;
     const qqqCloses=histData.get('__QQQ__');
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
-    const bt=portfolioBacktest(stockData,histTs,qqqCloses,stratParams);
+    const bt=portfolioBacktest(stockData,histTs,qqqCloses,params);
     const metrics=calcPortMetrics(bt.equityCurve,bt.timestamps);
     const qqqBt=buildQqqEquity(qqqCloses,bt.simStart);
     const qqqEq=qqqBt.equityCurve.slice(0,bt.equityCurve.length);
@@ -1354,8 +1355,8 @@ export default function App() {
                                       {sec.fmt(r.metrics[sec.key])}
                                     </td>
                                     <td style={{padding:"5px 8px"}}>
-                                      <button onClick={()=>{setStratParams({...r.params});}} style={{padding:"2px 8px",fontSize:9,cursor:"pointer",fontFamily:"inherit",borderRadius:4,
-                                        background:"transparent",border:`1px solid ${T.borderSub}`,color:T.textSub}}>应用</button>
+                                      <button onClick={()=>{const p={...r.params};setStratParams(p);runStratBacktest(p);}} style={{padding:"2px 8px",fontSize:9,cursor:"pointer",fontFamily:"inherit",borderRadius:4,
+                                        background:"transparent",border:`1px solid ${T.borderSub}`,color:T.textSub}}>应用并回测</button>
                                     </td>
                                   </tr>
                                 ))}

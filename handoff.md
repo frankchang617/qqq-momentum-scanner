@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24（策略回测系统）
+更新时间：2026-05-24（修复一键优化「应用并回测」）
 
 ## 项目结构
 
@@ -194,3 +194,4 @@ git add -A && git commit -m "描述" && git push
 - useEffect 依赖 useCallback 时必须在其后声明，否则 TDZ 报错导致白屏
 - Vercel 未连接 GitHub 时 push 不触发自动部署 → Settings → Git → Install GitHub App
 - `position:sticky` 表头失效 → 根因是 `borderCollapse:"collapse"`，必须改为 `"separate"` + `borderSpacing:0`，分割线改用 `boxShadow`
+- 一键优化「应用」按钮点击无反应 → 原因是只调用了 `setStratParams`（state 异步更新），回测未重跑；修复：`runStratBacktest` 新增 `overrideParams` 参数，「应用」改为「应用并回测」，先将参数存入局部变量 `p`，同步传给 `setStratParams(p)` 和 `runStratBacktest(p)`
