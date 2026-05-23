@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-23
+更新时间：2026-05-24
 
 ## 项目结构
 
@@ -50,6 +50,10 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 
 ## 已实现功能
 
+### UI 增强
+- **固定表头**：使用 `borderCollapse:"separate"` + `position:sticky`，向下滚动时表头始终可见（`borderCollapse:"collapse"` 与 sticky 不兼容，是此前失效的根因）
+- **亮/暗模式切换**：右上角按钮一键切换，背景/文字/卡片/边框全部跟随主题，信号颜色不变
+
 ### 主列表
 - 综合得分排行榜，支持按 20D/50D/200D 涨幅和夏普比切换排序
 - Top 10/20/30/50 切换，刷新按钮
@@ -66,6 +70,8 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 - 9格指标卡：20/50/200D 涨幅、波动率、夏普、综合得分、现价
 
 #### 回测面板（核心功能）
+
+**测试均线**：5D / 10D / 20D / 50D / 200D（数据不足时显示"无触发信号"）
 
 **入场方式（4选1，紫色按钮）：**
 
@@ -92,8 +98,6 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 **硬止损**：-9%，所有模式常驻生效，哪个先触发就用哪个出场。
 
 **回测结果显示**：触发次数、均持天数、平均收益、胜率、最好/最差单次
-
-**测试均线**：5D / 20D / 50D / 200D（数据不足时显示"无触发信号"）
 
 #### 止损计算器
 输入买入价 → 自动显示止损价（×91%）、现价涨跌幅、是否触发止损警告
@@ -128,6 +132,10 @@ git add -A && git commit -m "描述" && git push
 # 若自动部署失败：npx vercel --prod
 ```
 
+## 主题系统
+
+`DARK` / `LIGHT` 两个常量对象定义所有颜色 token（pageBg、cardBg、border、text 等），App 内 `const T = darkMode ? DARK : LIGHT`，所有 inline style 引用 `T.xxx`。信号颜色（绿/红）不在 theme 内，全局统一。
+
 ## 踩过的坑
 - Finnhub 免费版不支持历史日线（需付费）→ 改用 Yahoo Finance
 - Yahoo Finance 无 CORS 头 → Vite proxy（本地）+ Edge Function（生产）
@@ -135,3 +143,4 @@ git add -A && git commit -m "描述" && git push
 - Vercel Lambda IP 被封 → 改用 Edge Function（Cloudflare 节点）
 - useEffect 依赖 useCallback 时必须在其后声明，否则 TDZ 报错导致白屏
 - Vercel 未连接 GitHub 时 push 不触发自动部署 → Settings → Git → Install GitHub App
+- `position:sticky` 表头失效 → 根因是 `borderCollapse:"collapse"`，必须改为 `"separate"` + `borderSpacing:0`，分割线改用 `boxShadow`
