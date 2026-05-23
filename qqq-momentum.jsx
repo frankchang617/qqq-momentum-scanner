@@ -169,7 +169,11 @@ export default function App() {
   const [topN,        setTopN]        = useState(20);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [expandedSym, setExpandedSym] = useState(null);
+  const [filters,     setFilters]     = useState({ allPositive:false, minRet20:false, minSharpe50:false });
   const abortRef   = useRef(null);
+
+  const toggleFilter = useCallback(key =>
+    setFilters(f => ({ ...f, [key]: !f[key] })), []);
 
   const runScan = useCallback(async () => {
     abortRef.current?.abort();
@@ -224,11 +228,25 @@ export default function App() {
   }, [runScan]);
 
 
-  const { sorted, mAbs20, mAbs50, mAbs200 } = useMemo(() => {
-    const sorted = [...results]
-      .filter(r => r[sortKey] != null && !isNaN(r[sortKey]))
+  const { sorted, passCount, mAbs20, mAbs50, mAbs200 } = useMemo(() => {
+    // 200日涨幅第25百分位（用于极端尾部判断）
+    const ret200vals = results.map(r => r.ret200 ?? 0).sort((a,b) => a-b);
+    const p25 = ret200vals[Math.floor(ret200vals.length * 0.25)] ?? -Infinity;
+
+    const filterFns = [];
+    if (filters.allPositive) filterFns.push(r => (r.ret20??-1)>0 && (r.ret50??-1)>0 && (r.ret200??-1)>0);
+    if (filters.minRet20)    filterFns.push(r => (r.ret20??0) >= 20);
+    if (filters.minSharpe50) filterFns.push(r => (r.sharpe50??0) >= 1.0);
+    // 始终剔除 200 日极端尾部（仅当任一过滤器开启时）
+    if (filterFns.length > 0) filterFns.push(r => (r.ret200??0) > p25);
+
+    const base = [...results].filter(r => r[sortKey] != null && !isNaN(r[sortKey]));
+    const passCount = filterFns.length ? base.filter(r => filterFns.every(fn=>fn(r))).length : null;
+    const sorted = base
+      .filter(r => filterFns.every(fn => fn(r)))
       .sort((a, b) => (b[sortKey] ?? -999) - (a[sortKey] ?? -999))
       .slice(0, topN);
+
     let mAbs20 = 1, mAbs50 = 1, mAbs200 = 1;
     for (const r of results) {
       const a20 = Math.abs(r.ret20 ?? 0);
@@ -238,8 +256,8 @@ export default function App() {
       if (a50  > mAbs50)  mAbs50  = a50;
       if (a200 > mAbs200) mAbs200 = a200;
     }
-    return { sorted, mAbs20, mAbs50, mAbs200 };
-  }, [results, sortKey, topN]);
+    return { sorted, passCount, mAbs20, mAbs50, mAbs200 };
+  }, [results, sortKey, topN, filters]);
 
   const { breadthPos, breadthNeg, avgRet20 } = useMemo(() => {
     if (!results.length) return { breadthPos:0, breadthNeg:0, avgRet20:0 };
@@ -329,6 +347,7 @@ export default function App() {
         )}
 
         {results.length > 0 && (
+          <Fragment>
           <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
             <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
               {SORT_OPTS.map(o => (
@@ -354,6 +373,42 @@ export default function App() {
               )}
             </div>
           </div>
+
+          {/* 精选过滤面板 */}
+          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:14, flexWrap:"wrap"}}>
+            <span style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.5, marginRight:4}}>精选筛选</span>
+            {[
+              { key:"allPositive", label:"三周期同向",  desc:"20/50/200日全为正" },
+              { key:"minRet20",    label:"20日 ≥ +20%", desc:"近期动能仍在持续" },
+              { key:"minSharpe50", label:"夏普50 ≥ 1.0",desc:"风险调整后收益达标" },
+            ].map(({ key, label, desc }) => {
+              const on = filters[key];
+              return (
+                <button key={key} onClick={() => toggleFilter(key)} title={desc} style={{
+                  padding:"4px 12px", fontSize:11, cursor:"pointer", fontFamily:"inherit",
+                  borderRadius:6, transition:"all 0.15s",
+                  background: on ? "#003a1a" : "transparent",
+                  border: `1px solid ${on ? "#00cc66" : "#304050"}`,
+                  color: on ? "#00ff88" : "#7a9aaa",
+                }}>
+                  {on ? "✓ " : ""}{label}
+                </button>
+              );
+            })}
+            {passCount !== null && (
+              <span style={{fontSize:11, color:"#00cc66", marginLeft:4}}>
+                → {passCount} 只通过
+              </span>
+            )}
+            {Object.values(filters).some(Boolean) && (
+              <button onClick={() => setFilters({allPositive:false,minRet20:false,minSharpe50:false})}
+                style={{fontSize:10, color:"#7a9aaa", background:"transparent", border:"none",
+                  cursor:"pointer", fontFamily:"inherit", padding:"2px 6px"}}>
+                清除
+              </button>
+            )}
+          </div>
+          </Fragment>
         )}
 
         {sorted.length > 0 && (
@@ -361,7 +416,7 @@ export default function App() {
             <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
               <thead>
                 <tr style={{borderBottom:"1px solid #182030"}}>
-                  {["#","代码","现价","60日走势","综合得分","20日涨幅","50日涨幅","200日涨幅","20日夏普","50日夏普"].map(h => (
+                  {["#","代码","现价","60日走势","综合得分","一致性","20日涨幅","50日涨幅","200日涨幅","20日夏普","50日夏普"].map(h => (
                     <th key={h} style={{padding:"9px 10px", textAlign:"left", color:"#7a9aaa",
                       fontWeight:500, fontSize:10, letterSpacing:1.2, whiteSpace:"nowrap"}}>{h}</th>
                   ))}
@@ -395,6 +450,13 @@ export default function App() {
                           <Sparkline closes={row.closes} width={100} height={34} days={60}/>
                         </td>
                         <td style={tdStyle}><ScoreBadge score={row.score}/></td>
+                        <td style={{...tdStyle, whiteSpace:"nowrap"}}>
+                          {[row.ret20, row.ret50, row.ret200].map((v, di) => (
+                            <span key={di} title={["20D","50D","200D"][di]}
+                              style={{fontSize:14, marginRight:1,
+                                color: v == null ? "#304050" : v > 0 ? "#00ff88" : "#ff3344"}}>●</span>
+                          ))}
+                        </td>
                         <td style={tdStyle}><MiniBar value={row.ret20}  maxAbs={mAbs20}  colorFn={retColor}/></td>
                         <td style={tdStyle}><MiniBar value={row.ret50}  maxAbs={mAbs50}  colorFn={retColor}/></td>
                         <td style={tdStyle}><MiniBar value={row.ret200} maxAbs={mAbs200} colorFn={retColor}/></td>
@@ -407,7 +469,7 @@ export default function App() {
                       </tr>
                       {isExp && (
                         <tr style={{background:"#0d1c2e", borderBottom:"1px solid #182030"}}>
-                          <td colSpan={10} style={{padding:"20px 24px"}}>
+                          <td colSpan={11} style={{padding:"20px 24px"}}>
                             <div style={{display:"flex", gap:32, flexWrap:"wrap", alignItems:"flex-start"}}>
                               <div>
                                 <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1, marginBottom:8}}>
