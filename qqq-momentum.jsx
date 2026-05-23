@@ -474,7 +474,7 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
   const symbols = [...histData.keys()];
   // 确保有足够的回望数据（200日均线）
   const simStart = Math.max(rangeStart, 205);
-  console.log('[BT] symbols:', symbols.length, 'N:', N, 'simStart:', simStart, 'params:', JSON.stringify(params));
+  console.log('[BT] symbols:', symbols.length, 'N:', N, 'simStart:', simStart, 'metric:', params.sortMetric, 'topN:', params.topN, 'freq:', params.rebalanceFreq, 'buf:', params.bufferEnabled, 'ma:', params.qqq200Filter);
   if (simStart >= N - 10) return { equityCurve:[1], timestamps:[], turnoverCount:0, simStart };
 
   const equityCurve = [];
