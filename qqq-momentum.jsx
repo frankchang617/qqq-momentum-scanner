@@ -307,6 +307,34 @@ async function fetchCandles(symbol, signal) {
   }
 }
 
+// 单股长周期 OHLCV（adjclose 做收盘，按比例缩放 high/low）
+async function fetchCandlesOHLC(symbol, range, signal) {
+  const url = `/api/yahoo?symbol=${symbol}&range=${range}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) return null;
+      const q   = result.indicators?.quote?.[0];
+      const adj = result.indicators?.adjclose?.[0]?.adjclose;
+      if (!q?.close || !q.high || !q.low) return null;
+      const rows = [];
+      for (let i = 0; i < q.close.length; i++) {
+        if (q.close[i] == null || q.high[i] == null || q.low[i] == null) continue;
+        const adjC  = adj?.[i] ?? q.close[i];
+        const scale = q.close[i] > 0 ? adjC / q.close[i] : 1;
+        rows.push({ c: adjC, h: q.high[i] * scale, l: q.low[i] * scale });
+      }
+      return rows.length >= 20 ? rows : null;
+    } catch (e) {
+      if (signal?.aborted || attempt === 1) throw e;
+    }
+  }
+}
+
 // 扩展历史数据（使用 adjclose，含时间戳）
 async function fetchCandlesExtended(symbol, range, signal) {
   const url = `/api/yahoo?symbol=${symbol}&range=${range}`;
@@ -726,6 +754,9 @@ export default function App() {
   const [darkMode,    setDarkMode]    = useState(true);
   const [initCapital, setInitCapital] = useState("100000");
   const [btCapital,   setBtCapital]   = useState("10000");
+  const [btRange,     setBtRange]     = useState("1y");
+  const [btLongData,  setBtLongData]  = useState({});
+  const [btLongLoading, setBtLongLoading] = useState(false);
   const abortRef    = useRef(null);
   const histAbort   = useRef(null);
   const T = darkMode ? DARK : LIGHT;
@@ -1121,16 +1152,51 @@ export default function App() {
                                     ))}
                                   </div>
                                 </div>
-                                {/* 每笔资金输入 */}
-                                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                                  <span style={{fontSize:11,color:T.textSub}}>每笔入场</span>
-                                  <span style={{fontSize:11,color:T.textMuted}}>$</span>
-                                  <input type="number" value={btCapital} onChange={e=>{e.stopPropagation();setBtCapital(e.target.value);}} onClick={e=>e.stopPropagation()}
-                                    style={{width:100,padding:"3px 8px",background:T.inputBg,border:`1px solid ${T.borderSub}`,borderRadius:4,color:T.text,fontFamily:"inherit",fontSize:12}}/>
+                                {/* 回测控制栏 */}
+                                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,flexWrap:"wrap"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                    <span style={{fontSize:11,color:T.textSub}}>回测期间</span>
+                                    {["1y","2y","3y","5y"].map(rng=>(
+                                      <button key={rng} onClick={e=>{e.stopPropagation();setBtRange(rng);}} style={{padding:"3px 9px",fontSize:10,cursor:"pointer",fontFamily:"inherit",borderRadius:5,
+                                        background:btRange===rng?(darkMode?"#001a4a":"#e0eaff"):"transparent",
+                                        border:`1px solid ${btRange===rng?"#4488ee":T.borderSub}`,color:btRange===rng?"#4488ee":T.textMuted}}>
+                                        {rng.replace("y","年")}
+                                      </button>
+                                    ))}
+                                    {btRange!=="1y"&&!btLongData[`${row.symbol}_${btRange}`]&&(
+                                      <button disabled={btLongLoading} onClick={async e=>{
+                                        e.stopPropagation();
+                                        setBtLongLoading(true);
+                                        try{
+                                          const d=await fetchCandlesOHLC(row.symbol,btRange,new AbortController().signal);
+                                          if(d) setBtLongData(prev=>({...prev,[`${row.symbol}_${btRange}`]:d}));
+                                        }catch(e){}
+                                        setBtLongLoading(false);
+                                      }} style={{padding:"3px 12px",fontSize:10,cursor:btLongLoading?"not-allowed":"pointer",fontFamily:"inherit",borderRadius:5,
+                                        background:"transparent",border:`1px solid #9966ee`,color:"#cc99ff",opacity:btLongLoading?0.6:1}}>
+                                        {btLongLoading?"加载中…":"↓ 加载历史数据"}
+                                      </button>
+                                    )}
+                                    {btRange!=="1y"&&btLongData[`${row.symbol}_${btRange}`]&&(
+                                      <span style={{fontSize:10,color:T.textVMuted}}>{btLongData[`${row.symbol}_${btRange}`].length} 日</span>
+                                    )}
+                                  </div>
+                                  <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+                                    <span style={{fontSize:11,color:T.textSub}}>每笔入场</span>
+                                    <span style={{fontSize:11,color:T.textMuted}}>$</span>
+                                    <input type="number" value={btCapital} onChange={e=>{e.stopPropagation();setBtCapital(e.target.value);}} onClick={e=>e.stopPropagation()}
+                                      style={{width:100,padding:"3px 8px",background:T.inputBg,border:`1px solid ${T.borderSub}`,borderRadius:4,color:T.text,fontFamily:"inherit",fontSize:12}}/>
+                                  </div>
                                 </div>
                                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {[5,10,20,50,200].map(ma=>{
-                                    const r=backtest(row.closes,row.highs,row.lows,ma,btEntry,btMode,row.vol20??0);
+                                    const longKey=`${row.symbol}_${btRange}`;
+                                    const candles=btRange!=="1y"&&btLongData[longKey]?btLongData[longKey]:null;
+                                    const closes=candles?candles.map(d=>d.c):row.closes;
+                                    const highs=candles?candles.map(d=>d.h):row.highs;
+                                    const lows=candles?candles.map(d=>d.l):row.lows;
+                                    const vol20=candles&&closes.length>=21?calcVol(closes,20):row.vol20??0;
+                                    const r=backtest(closes,highs,lows,ma,btEntry,btMode,vol20);
                                     const hasData=r&&r.n>0;
                                     const cap=parseFloat(btCapital)||0;
                                     const qqqRet1Y=qqqData?.closes?.length>1?((qqqData.closes.at(-1)-qqqData.closes[0])/qqqData.closes[0]*100):null;
@@ -1168,7 +1234,7 @@ export default function App() {
                                     );
                                   })}
                                 </div>
-                                <div style={{fontSize:10,color:T.textVMuted,marginTop:8}}>CAGR/Sharpe/MDD 基于顺序复利净值曲线 · vs QQQ 为1年涨幅差 · 不含手续费 · 仅供参考</div>
+                                <div style={{fontSize:10,color:T.textVMuted,marginTop:8}}>CAGR/Sharpe/MDD 基于顺序复利净值曲线（{btRange.replace("y","年")}） · vs QQQ 为扫描器1年涨幅差 · 不含手续费 · 仅供参考</div>
                               </div>
                               {/* 止损计算器 */}
                               <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
