@@ -131,9 +131,15 @@ async function fetchCandles(symbol, signal) {
       const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
-      if (!closes || closes.length < 10) return null;
-      return closes.filter(v => v != null);
+      const q = data?.chart?.result?.[0]?.indicators?.quote?.[0];
+      if (!q?.close || q.close.length < 10) return null;
+      // 同时返回收盘/最高/最低，过滤任一为 null 的日期
+      const rows = [];
+      for (let i = 0; i < q.close.length; i++) {
+        if (q.close[i] != null && q.high?.[i] != null && q.low?.[i] != null)
+          rows.push({ c: q.close[i], h: q.high[i], l: q.low[i] });
+      }
+      return rows.length >= 10 ? rows : null;
     } catch (e) {
       if (signal.aborted || attempt === 1) throw e;
     }
@@ -161,55 +167,167 @@ function calcSharpe(ret, vol) {
   return ret / vol;
 }
 
-// 回测：回调至 maDays 均线买入，四种出场模式
-// exitMode: "mabreak"=均线破位出 | "trail7"=追踪止损7% | "fixed20"=固定20日
-//           "dollar"=固定金额追踪（买入价×20%或30%，由vol20决定）
-// vol20: 20日年化波动率（%），用于 dollar 模式判断高低波动
-function backtest(closes, maDays, exitMode = "mabreak", vol20 = 0) {
-  const STOP = 0.09, MAX_DAYS = 120, TRAIL = 0.07;
-  // vol20 > 50% → 高波动 → 追踪距离 = 买入价×30%；否则×20%
-  const dollarTrailPct = (vol20 > 50) ? 0.30 : 0.20;
+// ── 技术指标辅助函数（均为 O(n)，返回与 closes 等长的数组）──
 
-  if (!closes || closes.length < maDays + 20 + 5) return null;
-
-  // O(n) 预计算 MA 数组
-  const maArr = new Array(closes.length).fill(null);
-  let sum = 0;
+function maArrFn(closes, period) {
+  const arr = new Array(closes.length).fill(null);
+  let s = 0;
   for (let k = 0; k < closes.length; k++) {
-    sum += closes[k];
-    if (k >= maDays) sum -= closes[k - maDays];
-    if (k >= maDays - 1) maArr[k] = sum / maDays;
+    s += closes[k];
+    if (k >= period) s -= closes[k - period];
+    if (k >= period - 1) arr[k] = s / period;
   }
+  return arr;
+}
+
+function emaArrFn(src, period) {
+  // src 可以含 null（MACD 场景），从第一个非 null 开始积累
+  const arr = new Array(src.length).fill(null);
+  const k = 2 / (period + 1);
+  let ema = null, count = 0;
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] == null) continue;
+    if (ema === null) {
+      count++;
+      ema = (ema ?? 0) * ((count - 1) / count) + src[i] / count;
+      if (count >= period) arr[i] = ema;
+    } else {
+      ema = src[i] * k + ema * (1 - k);
+      arr[i] = ema;
+    }
+  }
+  return arr;
+}
+
+function atrArrFn(highs, lows, closes, period = 14) {
+  if (!highs || !lows) return new Array(closes.length).fill(null);
+  const arr = new Array(closes.length).fill(null);
+  let atr = null, count = 0;
+  for (let i = 1; i < closes.length; i++) {
+    const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
+    if (atr === null) {
+      count++;
+      atr = (atr ?? 0) * ((count - 1) / count) + tr / count;
+      if (count >= period) arr[i] = atr;
+    } else {
+      atr = (atr * (period - 1) + tr) / period; // Wilder 平滑
+      arr[i] = atr;
+    }
+  }
+  return arr;
+}
+
+function rsiArrFn(closes, period = 14) {
+  const arr = new Array(closes.length).fill(null);
+  if (closes.length < period + 1) return arr;
+  let ag = 0, al = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) ag += d; else al -= d;
+  }
+  ag /= period; al /= period;
+  arr[period] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+    al = (al * (period - 1) + Math.max(-d, 0)) / period;
+    arr[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+  }
+  return arr;
+}
+
+function macdArraysFn(closes) {
+  const ema12 = emaArrFn(closes, 12);
+  const ema26 = emaArrFn(closes, 26);
+  const macdLine = closes.map((_, i) =>
+    ema12[i] != null && ema26[i] != null ? ema12[i] - ema26[i] : null
+  );
+  const signalArr = emaArrFn(macdLine, 9);
+  const histArr   = closes.map((_, i) =>
+    macdLine[i] != null && signalArr[i] != null ? macdLine[i] - signalArr[i] : null
+  );
+  return { macdLine, signalArr, histArr };
+}
+
+// Elder 冲量系统：13EMA 方向 + MACD 柱方向 → green / red / blue
+function impulseArrFn(closes) {
+  const ema13    = emaArrFn(closes, 13);
+  const { histArr } = macdArraysFn(closes);
+  return closes.map((_, i) => {
+    if (!i || ema13[i] == null || ema13[i-1] == null || histArr[i] == null || histArr[i-1] == null) return null;
+    const up13 = ema13[i] > ema13[i-1];
+    const upH  = histArr[i] > histArr[i-1];
+    return (up13 && upH) ? 'green' : (!up13 && !upH) ? 'red' : 'blue';
+  });
+}
+
+// ── 回测核心 ──
+// entryMode: "touch" | "bounce" | "impulse_touch" | "impulse_bounce"
+// exitMode:  "mabreak"|"dollar"|"trail7"|"atr2"|"atr3"|"rsi70"|"macd"|"fixed20"
+function backtest(closes, highs, lows, maDays, entryMode = "touch", exitMode = "mabreak", vol20 = 0) {
+  const STOP = 0.09, MAX_DAYS = 120;
+  const dollarTrailPct = vol20 > 50 ? 0.30 : 0.20;
+  if (!closes || closes.length < maDays + 35) return null;
+
+  // 预计算全部指标数组（每次回测只算一次）
+  const maArr      = maArrFn(closes, maDays);
+  const atrArr     = atrArrFn(highs, lows, closes, 14);
+  const rsiArr     = rsiArrFn(closes, 14);
+  const { histArr} = macdArraysFn(closes);
+  const impulse    = impulseArrFn(closes);
 
   const trades = [];
-  for (let i = maDays + 1; i < closes.length - 5; i++) {
-    const ma = maArr[i], prevMa = maArr[i - 1];
+  for (let i = maDays + 2; i < closes.length - 7; i++) {
+    const ma = maArr[i], prevMa = maArr[i-1];
     if (!ma || !prevMa) continue;
-    const cur = closes[i], prev = closes[i - 1];
-    // 入场：前一天在均线上方 1%，当天拉回至均线 ±2%
+    const cur = closes[i], prev = closes[i-1];
+
+    // 价格回调至均线 ±2%（所有入场模式共同前提）
     if (prev < prevMa * 1.01) continue;
     if (cur > ma * 1.02 || cur < ma * 0.97) continue;
 
-    const entry = closes[i + 1];
+    // 冲量系统过滤
+    if ((entryMode === 'impulse_touch' || entryMode === 'impulse_bounce') && impulse[i] !== 'green') continue;
+
+    // 确定实际买入日
+    let entryIdx;
+    if (entryMode === 'touch' || entryMode === 'impulse_touch') {
+      entryIdx = i + 1;
+    } else {
+      // 等待次日收盘站回均线上方再买（反弹确认）
+      const nextMa = maArr[i + 1];
+      if (!closes[i+1] || !nextMa || closes[i+1] <= nextMa) continue;
+      entryIdx = i + 2;
+    }
+    if (entryIdx >= closes.length - 3) continue;
+    const entry = closes[entryIdx];
     if (!entry) continue;
 
-    // 固定金额追踪：追踪距离 = 买入价 × dollarTrailPct（整个持仓期固定不变）
     const dollarTrailAmt = entry * dollarTrailPct;
+    const atrEntry = atrArr[entryIdx] ?? atrArr[entryIdx - 1] ?? null;
 
     let exit = null, exitDay = 0, peak = entry;
-    const limit = Math.min(MAX_DAYS, closes.length - i - 3);
+    const limit = Math.min(MAX_DAYS, closes.length - entryIdx - 2);
 
     for (let j = 1; j <= limit; j++) {
-      const k = i + 1 + j;
+      const k = entryIdx + j;
       const p = closes[k];
-      if (!p) { exit = closes[k - 1]; exitDay = j - 1; break; }
+      if (!p) { exit = closes[k-1]; exitDay = j-1; break; }
       if (p > peak) peak = p;
-      if (p <= entry * (1 - STOP))                              { exit = p; exitDay = j; break; }
-      if (exitMode === "fixed20"  && j === 20)                  { exit = p; exitDay = j; break; }
-      if (exitMode === "mabreak"  && maArr[k] && p < maArr[k])  { exit = p; exitDay = j; break; }
-      if (exitMode === "trail7"   && p <= peak * (1 - TRAIL))   { exit = p; exitDay = j; break; }
-      if (exitMode === "dollar"   && p <= peak - dollarTrailAmt) { exit = p; exitDay = j; break; }
-      if (j === limit)                                           { exit = p; exitDay = j; }
+      if (p <= entry * (1 - STOP)) { exit = p; exitDay = j; break; }
+
+      let hit = false;
+      switch (exitMode) {
+        case 'fixed20':  hit = j === 20; break;
+        case 'mabreak':  hit = !!(maArr[k] && p < maArr[k]); break;
+        case 'trail7':   hit = p <= peak * 0.93; break;
+        case 'dollar':   hit = p <= peak - dollarTrailAmt; break;
+        case 'atr2':     hit = !!(atrEntry && p <= peak - 2 * atrEntry); break;
+        case 'atr3':     hit = !!(atrEntry && p <= peak - 3 * atrEntry); break;
+        case 'rsi70':    hit = !!(rsiArr[k] != null && rsiArr[k] > 70); break;
+        case 'macd':     hit = !!(histArr[k] != null && histArr[k-1] != null && histArr[k] < 0 && histArr[k-1] >= 0); break;
+      }
+      if (hit || j === limit) { exit = p; exitDay = j; break; }
     }
 
     if (!exit) continue;
@@ -225,7 +343,7 @@ function backtest(closes, maDays, exitMode = "mabreak", vol20 = 0) {
     avgDays:      Math.round(trades.reduce((a, t) => a + t.days, 0) / trades.length),
     best:         Math.max(...trades.map(t => t.ret)),
     worst:        Math.min(...trades.map(t => t.ret)),
-    dollarTrailPct,  // 实际使用的追踪比例（仅 dollar 模式有意义）
+    dollarTrailPct,
   };
 }
 
@@ -241,6 +359,7 @@ export default function App() {
   const [qqqData,     setQqqData]     = useState(null);
   const [costBasis,   setCostBasis]   = useState({});
   const [btMode,      setBtMode]      = useState("mabreak");
+  const [btEntry,     setBtEntry]     = useState("touch");
   const abortRef   = useRef(null);
 
   const toggleFilter = useCallback(key =>
@@ -264,8 +383,10 @@ export default function App() {
         try {
           const raw = await fetchCandles(sym, signal);
           if (!raw) return { symbol:sym, error:true };
-          // Keep full year — 252 days for backtest coverage + 200D metrics
-          const closes = raw.slice(-252);
+          const slice  = raw.slice(-252);
+          const closes = slice.map(d => d.c);
+          const highs  = slice.map(d => d.h);
+          const lows   = slice.map(d => d.l);
           const ret20    = calcReturn(closes, 20);
           const ret50    = calcReturn(closes, 50);
           const ret200   = calcReturn(closes, 200);
@@ -274,8 +395,8 @@ export default function App() {
           const sharpe20 = calcSharpe(ret20, vol20);
           const sharpe50 = calcSharpe(ret50, vol50);
           const score    = (ret20??0)*0.45 + (ret50??0)*0.35 + (ret200??0)*0.20;
-          return { symbol:sym, closes, ret20, ret50, ret200, vol20, vol50,
-                   sharpe20, sharpe50, score, price:raw.at(-1), error:false };
+          return { symbol:sym, closes, highs, lows, ret20, ret50, ret200, vol20, vol50,
+                   sharpe20, sharpe50, score, price:slice.at(-1)?.c, error:false };
         } catch(e) {
           return { symbol:sym, error:true };
         }
@@ -303,7 +424,7 @@ export default function App() {
     const controller = new AbortController();
     fetchCandles("QQQ", controller.signal).then(raw => {
       if (!raw) return;
-      const closes = raw.slice(-202);
+      const closes = raw.slice(-202).map(d => d.c);
       const ret20  = calcReturn(closes, 20);
       const ret200 = calcReturn(closes, 200);
       const ma200  = closes.slice(-200).reduce((a, b) => a + b, 0) / 200;
@@ -626,20 +747,44 @@ export default function App() {
                             </div>
                             {/* 回测面板 */}
                             <div style={{marginTop:16, paddingTop:14, borderTop:"1px solid #182030"}}>
-                              <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:10, flexWrap:"wrap"}}>
-                                <span style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2}}>
-                                  回测 — 回调至均线买入 · 止损-9%
-                                </span>
-                                <div style={{display:"flex", gap:5}}>
+                              <div style={{marginBottom:10}}>
+                                <div style={{fontSize:10, color:"#7a9aaa", letterSpacing:1.2, marginBottom:6}}>
+                                  回测 · 止损-9%常驻
+                                </div>
+                                {/* 入场方式 */}
+                                <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:6, flexWrap:"wrap"}}>
+                                  <span style={{fontSize:10, color:"#405870", minWidth:36}}>入场</span>
                                   {[
-                                    { id:"mabreak",  label:"均线破位出" },
-                                    { id:"dollar",   label:"固定金额追踪" },
-                                    { id:"trail7",   label:"追踪止损7%" },
-                                    { id:"fixed20",  label:"固定20日"   },
+                                    { id:"touch",          label:"触线即买"       },
+                                    { id:"bounce",         label:"反弹确认再买"   },
+                                    { id:"impulse_touch",  label:"冲量+触线"      },
+                                    { id:"impulse_bounce", label:"冲量+反弹确认"  },
                                   ].map(({ id, label }) => (
-                                    <button key={id}
-                                      onClick={e => { e.stopPropagation(); setBtMode(id); }}
-                                      style={{padding:"3px 10px", fontSize:10, cursor:"pointer",
+                                    <button key={id} onClick={e => { e.stopPropagation(); setBtEntry(id); }}
+                                      style={{padding:"3px 9px", fontSize:10, cursor:"pointer",
+                                        fontFamily:"inherit", borderRadius:5,
+                                        background: btEntry===id ? "#1a0040" : "transparent",
+                                        border:`1px solid ${btEntry===id ? "#aa66ff" : "#253545"}`,
+                                        color: btEntry===id ? "#bb88ff" : "#6a8090"}}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                                {/* 出场方式 */}
+                                <div style={{display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
+                                  <span style={{fontSize:10, color:"#405870", minWidth:36}}>出场</span>
+                                  {[
+                                    { id:"mabreak", label:"均线破位" },
+                                    { id:"dollar",  label:"固定金额追踪" },
+                                    { id:"atr2",    label:"ATR×2" },
+                                    { id:"atr3",    label:"ATR×3" },
+                                    { id:"rsi70",   label:"RSI>70" },
+                                    { id:"macd",    label:"MACD死叉" },
+                                    { id:"trail7",  label:"追踪7%" },
+                                    { id:"fixed20", label:"固定20日" },
+                                  ].map(({ id, label }) => (
+                                    <button key={id} onClick={e => { e.stopPropagation(); setBtMode(id); }}
+                                      style={{padding:"3px 9px", fontSize:10, cursor:"pointer",
                                         fontFamily:"inherit", borderRadius:5,
                                         background: btMode===id ? "#001a4a" : "transparent",
                                         border:`1px solid ${btMode===id ? "#4499ff" : "#253545"}`,
@@ -651,7 +796,7 @@ export default function App() {
                               </div>
                               <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
                                 {[5, 20, 50, 200].map(ma => {
-                                  const r = backtest(row.closes, ma, btMode, row.vol20 ?? 0);
+                                  const r = backtest(row.closes, row.highs, row.lows, ma, btEntry, btMode, row.vol20 ?? 0);
                                   const hasData = r && r.n > 0;
                                   return (
                                     <div key={ma} style={{padding:"10px 16px", background:"#0a1520",
@@ -694,7 +839,7 @@ export default function App() {
                                 })}
                               </div>
                               <div style={{fontSize:10, color:"#405870", marginTop:8}}>
-                                均线破位出 = 收盘跌破入场均线平仓 · 固定金额追踪 = 从高点下跌超过买入价×20%（低波动）或×30%（高波动）时平仓 · 追踪止损7% = 从高点跌7%平仓 · 不含手续费 · 仅供参考
+                                冲量确认 = Elder冲量系统绿色信号（13EMA↑ + MACD柱↑）· ATR = 14日真实波幅 · 固定金额追踪 = 买入价×20/30% · 不含手续费 · 仅供参考
                               </div>
                             </div>
 
