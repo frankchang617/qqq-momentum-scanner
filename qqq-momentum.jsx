@@ -595,7 +595,7 @@ function calcPortMetrics(equityCurve, timestamps) {
   }
   if(!monthlyRets[pYr]) monthlyRets[pYr]={};
   monthlyRets[pYr][pMo]=(equityCurve[n-1]/prevMoStart-1)*100;
-  return { cagr, sharpe, mdd, drawdowns, annualRets, monthlyRets, total:(equityCurve[n-1]-1)*100 };
+  return { cagr, sharpe, mdd:-mdd, drawdowns, annualRets, monthlyRets, total:(equityCurve[n-1]-1)*100 };
 }
 
 // 遍历所有参数组合
@@ -1268,7 +1268,7 @@ export default function App() {
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
                 <MetricCard label="CAGR（年化收益）" strat={stratResult.metrics.cagr} qqq={stratResult.qqqMetrics?.cagr} unit="%" fmtFn={v=>v.toFixed(1)}/>
                 <MetricCard label="Sharpe Ratio" strat={stratResult.metrics.sharpe} qqq={stratResult.qqqMetrics?.sharpe} fmtFn={v=>v.toFixed(2)}/>
-                <MetricCard label="最大回撤 MDD" strat={stratResult.metrics.mdd} qqq={stratResult.qqqMetrics?.mdd} unit="%" higherBetter={false} fmtFn={v=>v.toFixed(1)}/>
+                <MetricCard label="最大回撤 MDD" strat={stratResult.metrics.mdd} qqq={stratResult.qqqMetrics?.mdd} unit="%" higherBetter={true} fmtFn={v=>v.toFixed(1)}/>
                 <MetricCard label="累积收益" strat={stratResult.metrics.total} qqq={stratResult.qqqMetrics?.total} unit="%" fmtFn={v=>v.toFixed(1)}/>
                 <div style={{padding:"10px 14px",background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,minWidth:130}}>
                   <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:4}}>换股次数</div>
@@ -1326,8 +1326,8 @@ export default function App() {
                   {optResult&&(()=>{
                     const bySharpe=[...optResult].sort((a,b)=>b.metrics.sharpe-a.metrics.sharpe).slice(0,5);
                     const byCagr  =[...optResult].sort((a,b)=>b.metrics.cagr-a.metrics.cagr).slice(0,5);
-                    const byMdd   =[...optResult].sort((a,b)=>a.metrics.mdd-b.metrics.mdd).slice(0,5);
-                    const byRatio =[...optResult].sort((a,b)=>(b.metrics.cagr/(b.metrics.mdd||1))-(a.metrics.cagr/(a.metrics.mdd||1))).slice(0,5);
+                    const byMdd   =[...optResult].sort((a,b)=>b.metrics.mdd-a.metrics.mdd).slice(0,5);
+                    const byRatio =[...optResult].sort((a,b)=>(b.metrics.cagr/Math.abs(b.metrics.mdd||1))-(a.metrics.cagr/Math.abs(a.metrics.mdd||1))).slice(0,5);
                     const sections=[
                       {title:"Sharpe 最高",data:bySharpe,key:"sharpe",fmt:v=>v.toFixed(2)},
                       {title:"CAGR 最高",data:byCagr,key:"cagr",fmt:v=>v.toFixed(1)+"%"},
@@ -1429,7 +1429,7 @@ export default function App() {
                           {cm&&[
                             {label:"WFO CAGR",strat:cm.cagr,qqq:qm?.cagr,unit:"%",fmtFn:v=>v.toFixed(1)},
                             {label:"WFO Sharpe",strat:cm.sharpe,qqq:qm?.sharpe,unit:"",fmtFn:v=>v.toFixed(2)},
-                            {label:"WFO MDD",strat:cm.mdd,qqq:qm?.mdd,unit:"%",higherBetter:false,fmtFn:v=>v.toFixed(1)},
+                            {label:"WFO MDD",strat:cm.mdd,qqq:qm?.mdd,unit:"%",higherBetter:true,fmtFn:v=>v.toFixed(1)},
                           ].map((s,i)=><MetricCard key={i} {...s}/>)}
                         </div>
                         {/* WFO 净值曲线 */}
