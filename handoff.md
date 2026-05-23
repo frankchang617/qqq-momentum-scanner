@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24
+更新时间：2026-05-24（策略回测系统）
 
 ## 项目结构
 
@@ -26,9 +26,10 @@
 | 线上部署 | ✅ https://qqq-momentum-scanner.vercel.app |
 | GitHub | https://github.com/frankchang617/qqq-momentum-scanner |
 | GitHub → Vercel 自动部署 | ✅ 已连接（Settings → Git） |
-| 数据源 | Yahoo Finance（免费，无需 API Key，返回 OHLCV） |
+| 数据源 | Yahoo Finance（免费，无需 API Key，返回 OHLCV + adjclose） |
 | 成分股 | 101 只（2026-05 最新 Nasdaq-100） |
 | 扫描时间 | 约 20 秒 |
+| 策略回测数据 | Yahoo Finance adjclose，支持 2Y / 3Y / 5Y，加载约 2-3 分钟 |
 
 ## 架构说明
 
@@ -41,7 +42,9 @@
 Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘节点不受限制。
 
 ### 数据格式
-- `fetchCandles` 返回 `{ c, h, l }[]`（收盘/最高/最低），取最近 252 天
+- `fetchCandles` 返回 `{ c, h, l }[]`（收盘/最高/最低），取最近 252 天，用于扫描器
+- `fetchCandlesExtended(symbol, range, signal)` 返回 `{ c, ts }[]`（adjclose + 时间戳），用于策略回测
+- `api/yahoo.js` 和 `vite.config.js` 均已透传 `range` 参数（默认 `1y`，策略回测传 `2y/3y/5y`）
 - `runScan` 拆解为 `closes[]` / `highs[]` / `lows[]` 三个数组存入 row
 - 高低价用于 ATR 精确计算（Wilder 平滑法）
 
@@ -49,6 +52,48 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 - `ret20 × 0.45 + ret50 × 0.35 + ret200 × 0.20` = 综合得分
 
 ## 已实现功能
+
+### 策略回测标签页（新增）
+
+导航栏新增「策略回测」标签，与扫描器并列，互不干扰。
+
+#### Step 1 · 加载历史数据
+- 选择历史深度：2年 / 3年 / 5年
+- 点「加载历史数据」→ 拉取 101 只成分股 + QQQ 的 adjclose 数据
+- 时间戳对齐到 QQQ 日历（`alignHistData`），空值前向填充
+- 存入 `histData: Map<symbol, closes[]>`（key `__QQQ__` 存 QQQ 本身）
+
+#### Step 2 · 策略参数
+| 参数 | 选项 |
+|------|------|
+| 排名指标 | 综合评分 / 20日 / 50日 / 200日 |
+| 持仓数量 | Top 5 / 10 / 20 |
+| 调仓频率 | 每周（5日）/ 每月（21日）|
+| 缓冲换股 | 进 Top N 买入，跌出 Top 1.5N 才卖 |
+| QQQ均线滤网 | QQQ 跌破 200 日均线时全部转现金 |
+
+#### 绩效面板（策略 vs QQQ）
+- 指标卡：CAGR、Sharpe Ratio、最大回撤 MDD、累积收益、换股次数
+- 净值曲线（SVG，策略蓝线 + QQQ 灰虚线）
+- 回撤曲线（SVG，红色填充）
+- 年度收益柱状图（策略蓝 vs QQQ 灰）
+- 月度收益热图（绿/红色阶）
+
+#### 一键优化（96 种参数组合）
+- 遍历：排名×4 × Top N×3 × 频率×2 × 缓冲×2 × 均线×2 = 96 种
+- 输出前 5 名：Sharpe 最高 / CAGR 最高 / MDD 最低 / CAGR/MDD 最优
+- 点「应用」直接填回参数区
+
+#### Walk Forward Optimization
+- 自动按数据长度决定窗口：≥4年 → 3年 in-sample + 1年 out-sample；2-4年 → 按 60%/20% 比例
+- 逐窗口：in-sample 跑 96 组优化找最佳参数 → out-sample 验证
+- 串接所有 out-sample 画净值曲线，汇总 CAGR/Sharpe/MDD vs QQQ
+
+#### 量化正确性保证
+- **无未来数据**：排名用 T-1 收盘，交易用 T 收盘（日线数据无 T+1 开盘时的标准近似）
+- **时间戳严格对齐**：以 QQQ 日历为基准，其他股票空值前向填充
+- **使用 adjclose**：已处理拆股与分红，避免假信号
+- **幸存者偏差**：明确标注使用当前成分股，历史上被剔除的股票未计入
 
 ### UI 增强
 - **固定表头**：使用 `borderCollapse:"separate"` + `position:sticky`，向下滚动时表头始终可见（`borderCollapse:"collapse"` 与 sticky 不兼容，是此前失效的根因）
@@ -123,7 +168,12 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 | `rsiArrFn(closes, 14)` | RSI，Wilder 平滑法 |
 | `macdArraysFn(closes)` | MACD(12,26,9)，返回 {macdLine, signalArr, histArr} |
 | `impulseArrFn(closes)` | Elder冲量系统，返回 'green'/'red'/'blue'/null |
-| `backtest(closes,highs,lows,maDays,entryMode,exitMode,vol20)` | 回测核心，4×8 模式 |
+| `backtest(closes,highs,lows,maDays,entryMode,exitMode,vol20)` | 单股回测核心，4×8 模式 |
+| `portfolioBacktest(histData,commonTs,qqqCloses,params,start,end)` | 组合回测，缓冲换股 + QQQ滤网，无未来数据 |
+| `buildQqqEquity(qqqCloses,startIdx,endIdx)` | 构造 QQQ 买持净值曲线（基准对比） |
+| `calcPortMetrics(equityCurve,timestamps)` | CAGR / Sharpe / MDD / 年度收益 / 月度收益 |
+| `runAllCombos(histData,commonTs,qqqCloses,start,end)` | 遍历 96 种参数组合，返回全量结果 |
+| `runWFO(histData,commonTs,qqqCloses)` | Walk Forward：滚动窗口优化+验证，串接 out-sample |
 
 ## 部署更新流程
 ```bash
