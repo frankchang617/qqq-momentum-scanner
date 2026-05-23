@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24（修复一键优化「应用并回测」）
+更新时间：2026-05-24（修复运行回测全部为0的根本原因）
 
 ## 项目结构
 
@@ -195,3 +195,4 @@ git add -A && git commit -m "描述" && git push
 - Vercel 未连接 GitHub 时 push 不触发自动部署 → Settings → Git → Install GitHub App
 - `position:sticky` 表头失效 → 根因是 `borderCollapse:"collapse"`，必须改为 `"separate"` + `borderSpacing:0`，分割线改用 `boxShadow`
 - 一键优化「应用」按钮点击无反应 → 原因是只调用了 `setStratParams`（state 异步更新），回测未重跑；修复：`runStratBacktest` 新增 `overrideParams` 参数，「应用」改为「应用并回测」，先将参数存入局部变量 `p`，同步传给 `setStratParams(p)` 和 `runStratBacktest(p)`
+- 「运行回测」点击后指标全为0、换股次数0 → 根本原因：`onClick={runStratBacktest}` 让 React 把 SyntheticEvent 作为第一个参数传入，`overrideParams = event`（truthy），覆盖了 `stratParams`，导致 `sortMetric=undefined`，所有排名条件不匹配，`ranked` 始终为空；修复：改为 `onClick={()=>runStratBacktest()}`，无参调用
