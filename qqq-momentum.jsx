@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo, useId, useEffect, Fragment } from "react";
+import EtfStrategyTab from "./src/etf/EtfStrategyTab.jsx";
 
 // Nasdaq-100 components (updated May 2026, 101 symbols incl. GOOGL/GOOG dual class)
 const QQQ_COMPONENTS = [
@@ -1066,7 +1067,7 @@ export default function App() {
         </div>
         <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
           {/* 标签切换 */}
-          {[{id:"scanner",label:"扫描器"},{id:"backtest",label:"策略回测"}].map(tab=>(
+          {[{id:"scanner",label:"扫描器"},{id:"backtest",label:"策略回测"},{id:"etf",label:"ETF 跨资产策略"}].map(tab=>(
             <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
               padding:"5px 14px", borderRadius:6, cursor:"pointer", fontFamily:"inherit", fontSize:12,
               background: activeTab===tab.id?T.btnActiveBg:"transparent",
@@ -1831,6 +1832,11 @@ export default function App() {
           )}
 
         </div>
+      )}
+
+      {/* ══════════════ ETF 跨资产策略标签 ══════════════ */}
+      {activeTab === "etf" && (
+        <EtfStrategyTab T={T} darkMode={darkMode} />
       )}
 
       <style>{`

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx vite *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5199/)",
+      "Bash(screencapture -x /tmp/qqq-screenshot.png)",
+      "Bash(open -a \"Google Chrome\" http://localhost:5199/)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(osascript -e 'tell application \"Google Chrome\" to activate')",
+      "Bash(screencapture -x /tmp/qqq-app.png)",
+      "Bash(osascript -e ' *)",
+      "Bash(screencapture -x /tmp/qqq-final.png)",
+      "Bash(screencapture -x -R \"0,25,1280,820\" /tmp/qqq-final.png)",
+      "Bash(pkill -f \"vite --port 5199\")",
+      "Bash(chmod +x \"/Users/changfubin/Desktop/启动QQQ扫描器.command\")",
+      "Bash(chmod +x \"/Users/changfubin/Desktop/vibe coding/追踪QQQ动能最强的股票/启动QQQ扫描器.command\")"
+    ],
+    "additionalDirectories": [
+      "/Users/changfubin/Desktop"
+    ]
+  }
+}

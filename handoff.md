@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24（UI 优化：MDD 红色 + 净值/回撤曲线横轴时间标签 + 亮色模式按钮文字白色 + 加载中按钮样式统一）✅ 已完成
+更新时间：2026-05-24 Session 2（新增 ETF 跨资产策略模块：架构已确认，代码编写进行中 🚧）
 
 ## 项目结构
 
@@ -203,7 +203,98 @@ git add -A && git commit -m "描述" && git push
 
 `DARK` / `LIGHT` 两个常量对象定义所有颜色 token（pageBg、cardBg、border、text 等），App 内 `const T = darkMode ? DARK : LIGHT`，所有 inline style 引用 `T.xxx`。信号颜色（绿/红）不在 theme 内，全局统一。
 
-## 近期变更（2026-05-24 本次 session）
+## 🚧 进行中：ETF 跨资产策略模块（Session 2，2026-05-24）
+
+### 已确认的架构决策
+
+| 决策项 | 确认内容 |
+|--------|---------|
+| VIX 数据 | 真实 `^VIX`（Yahoo Finance）+ QQQ 自算 20日实现波动率，两个都要 |
+| 代码结构 | 拆成多个文件（不再单文件）|
+| 历史数据深度 | 10 年（`range=10y`）|
+| ETF 池 | QQQ、SPY、XLK、DXJ、TLT、GLD、SHY、TSM、SOXX（含 DXJ 确认）|
+| 整体最佳定义 | Sharpe×40% + MDD×35% + CAGR×25%（百分位加权）|
+| UI 方案 | 策略回测 Tab 内新增二级 Tab："QQQ成分股轮动" \| "ETF跨资产策略" |
+| 手续费 | 默认 0 |
+| Walk Forward | 3年 in-sample + 1年 out-of-sample，按年滚动 |
+
+### 新增文件结构（计划）
+
+```
+src/etf/
+├── strategies/
+│   ├── metrics.js          # 绩效指标纯函数（CAGR/Sharpe/MDD/年度/月度）
+│   ├── momentum.js         # 策略1：强势轮动（4回看×3持仓×3防御=36种）
+│   ├── dualMomentum.js     # 策略2：双动能（3×2×3=18种）
+│   └── volControl.js       # 策略3：波动率控管（2×3×3×2=32种）
+├── optimization/
+│   ├── gridSearch.js       # 一键优化（86种参数组合，百分位综合评分）
+│   └── wfo.js              # Walk Forward（3y IS + 1y OOS 滚动）
+├── data/
+│   └── fetchEtfData.js     # 拉取9个ETF + ^VIX，10年，时间戳对齐
+└── ui/
+    ├── EtfStrategyTab.jsx  # 主容器（二级 Tab + 三级策略选择器）
+    ├── panels/
+    │   ├── StrategyPanel.jsx   # 参数选择 + 运行按钮
+    │   ├── ResultsPanel.jsx    # 绩效面板
+    │   ├── OptimizePanel.jsx   # 一键优化结果排名
+    │   └── WfoPanel.jsx        # WFO 窗口明细
+    └── charts/
+        ├── EquityChart.jsx     # 净值曲线（策略 vs QQQ vs SPY，3条线）
+        ├── DrawdownChart.jsx   # 回撤曲线
+        ├── AnnualBar.jsx       # 年度收益柱状图
+        ├── MonthlyHeatmap.jsx  # 月度热图
+        ├── ParamHeatmap.jsx    # 参数热图（新）
+        ├── StrategyRanking.jsx # 策略排名表（新）
+        └── TradeLog.jsx        # 每次交易记录（新）
+```
+
+### 三个策略参数网格
+
+| 策略 | 参数 | 选项 | 组合数 |
+|------|------|------|--------|
+| 强势轮动 | lookback×topN×defensiveAsset | 4×3×3 | 36 |
+| 双动能 | lookback×maFilter×defensiveAsset | 3×2×3 | 18 |
+| 波动率控管 | volSource×lowVol×highVol×defensiveAsset（低<高约束） | 2×4×2 | 32 |
+| **合计** | | | **86** |
+
+### 量化正确性约束
+- 信号用 T-1 收盘计算，T 收盘执行（月调仓：月末信号，次日收盘执行）
+- 使用 adjclose（处理拆股分红）
+- 幸存者偏差：注明使用当前成分，未追溯历史调整
+- 手续费默认 0，界面可调
+
+### 当前进度
+- [x] 架构方案确认
+- [x] 读取现有代码结构（fetchCandlesExtended 模式、主题系统、Tab 切换方式）
+- [x] `src/etf/strategies/metrics.js` — CAGR/Sharpe/MDD/年度/月度/百分位综合评分
+- [x] `src/etf/strategies/momentum.js` — 策略1强势轮动（36种参数，月调仓）
+- [x] `src/etf/strategies/dualMomentum.js` — 策略2双动能（18种参数，MA趋势过滤）
+- [x] `src/etf/strategies/volControl.js` — 策略3波动率控管（32种有效参数，含QQQ Vol20计算）
+- [x] `src/etf/optimization/gridSearch.js` — 一键优化（86种组合，百分位综合评分，extractBest）
+- [x] `src/etf/optimization/wfo.js` — WFO（3y IS + 1y OOS 滚动，稳定性指标）
+- [x] `src/etf/data/fetchEtfData.js` — 10年数据加载，VIX对齐，批次请求
+- [x] `src/etf/ui/charts/EtfEquityChart.jsx` — 3条线（策略/QQQ/SPY）
+- [x] `src/etf/ui/charts/EtfDrawdownChart.jsx` — 回撤曲线，MDD标注
+- [x] `src/etf/ui/charts/EtfAnnualBar.jsx` — 年度收益柱状图
+- [x] `src/etf/ui/charts/EtfMonthlyHeatmap.jsx` — 月度热图
+- [x] `src/etf/ui/charts/ParamHeatmap.jsx` — 参数热图（X/Y轴任意参数）
+- [x] `src/etf/ui/charts/StrategyRanking.jsx` — 策略排名表（Top 20，可应用）
+- [x] `src/etf/ui/charts/TradeLog.jsx` — 交易记录表
+- [x] `src/etf/EtfStrategyTab.jsx` — 完整主容器（含三策略面板 + 一键优化 + WFO）
+- [x] `src/etf/EtfStrategyTab.jsx` — 完整主容器
+- [x] `qqq-momentum.jsx` — 加入 import + 第三个 Tab `"etf"`
+- [ ] **构建报错修复中**：import 路径错误（`./etf/` → `./src/etf/`），`qqq-momentum.jsx` 在根目录，需用 `./src/etf/EtfStrategyTab.jsx`
+
+### 关键代码约定（来自现有代码分析）
+- fetch 模式：`/api/yahoo?symbol=XXX&range=10y`，VIX 用 `encodeURIComponent('^VIX')`
+- 返回格式：`result.timestamp[]` + `result.indicators.adjclose[0].adjclose[]`
+- 主题：`DARK`/`LIGHT` 对象，通过 props 传 `T` 和 `darkMode`
+- Tab 切换：`activeTab` state + button 数组 map
+
+---
+
+## 近期变更（2026-05-24 Session 1）
 
 | commit | 内容 |
 |--------|------|
