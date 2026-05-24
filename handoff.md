@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 3（ETF 步骤对齐 + 应用并回测 + 操作建议信号面板 ✅）
+更新时间：2026-05-24 Session 4（WFO IS/OOS 参数一致性视觉强化 ✅）
 
 ## 项目结构
 
@@ -426,3 +426,48 @@ STEP 2 · 选择策略并回测                 ← 卡片（仅保留 3 策略 
 - `portfolioBacktest(params)` 新增 `marketFilter:'none'|'ma50'|'ma100'|'ma200'` 替代 `qqq200Filter:bool`（向后兼容）；`rebalanceFreq` 新增 `'daily'`/`'quarterly'`
 - `runAllCombos(histData,commonTs,qqqCloses,rangeStart,rangeEnd)` 参数网格从 96→448 种
 - `runWFO(histData,commonTs,qqqCloses,optMetric='sharpe')` 新增 optMetric 参数，窗口改为 70/30，返回值新增 `windowCount`/`totalCombos`/`optMetric`，`windowResults[i]` 新增 `inSampleScore`/`inSampleCAGR`/`inSampleMDD`/`inSampleComboCnt`
+
+---
+
+## Session 4 ✅ 完成记录（2026-05-24）
+
+### 主题：WFO IS/OOS 参数一致性视觉强化
+
+**用户需求**：运行 Walk Forward Optimization 时，样本内（IS）和样本外（OOS）所选择的最佳参数必须保持一致。
+
+### 代码分析结论
+
+经过审查，**两处 WFO 实现逻辑均已正确**：
+
+| 文件 | IS 选参 | OOS 使用 | 是否一致 |
+|------|---------|---------|---------|
+| `qqq-momentum.jsx` `runWFO()` | `bestParams = bestCombo.params` | `portfolioBacktest(..., bestParams, ...)` | ✅ 一致 |
+| `src/etf/optimization/wfo.js` `runWFO()` | `bestParams = bestIsResult.params` | `backtestMomentum/Dual/VolControl(..., bestParams, ...)` | ✅ 一致 |
+
+问题根源：**视觉展示**不够明确，窗口明细表列名 "IS 最优策略" 未明示 OOS 也使用相同参数。
+
+### 改动内容
+
+**文件 1：`src/etf/EtfStrategyTab.jsx`**
+1. WfoPanel 顶部说明新增 `🔒 参数一致性` 紫色提示行
+2. 窗口明细表表头由 `['窗口','IS期间','OOS期间','IS最优策略','OOS CAGR',...]` 改为含 `sub` 副标题的结构：
+   - "IS 训练期"（副标题：样本内（选参））
+   - "OOS 验证期"（副标题：样本外（禁止重选参））
+   - **"IS→OOS 参数"**（副标题：两者完全一致 ✓）— 原 "IS 最优策略"
+   - "IS 评分"（新增列）
+3. 参数值单元格加 `OOS同` 绿色小标签（视觉证明两者相同）
+4. 表格上方新增蓝紫色参数一致性说明横幅（`⚡ 参数一致性保证`）
+
+**文件 2：`qqq-momentum.jsx`**
+1. WFO 说明文字新增 `🔒 IS / OOS 参数严格一致` 蓝色提示行
+2. 窗口明细表各 IS 参数列的 `note` 由 `"↑ in-sample 最优"` 改为 `"IS→OOS（一致）"`
+3. 表格上方新增蓝色参数一致性说明横幅
+
+### 核心不变原则
+- **代码逻辑未改动**：IS `bestParams` 对象引用直接传入 OOS backtest，无复制或修改
+- **OOS 绝不重新优化**：任何地方都不会在 OOS 期间重跑 Grid Search
+- 两个文件的约束注释：`// ← 唯一用于 OOS 的参数，绝不事后修改`（`qqq-momentum.jsx:780`）
+
+### 下一步
+- 无遗留任务，Session 4 完整交付
+- 若后续需调整：可在 `wfo.js` `windowResults` 中新增 `oosParams: bestParams` 字段，代码层面显式标明 OOS 参数

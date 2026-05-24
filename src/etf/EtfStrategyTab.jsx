@@ -932,7 +932,11 @@ function WfoPanel({ etfData, T }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
-        用前 3 年找最佳参数，用后 1 年验证，每年滚动一次。串接所有 OOS 结果得到无偏绩效估计。
+        用前 3 年（IS）找最佳参数，用后 1 年（OOS）验证，每年滚动一次。串接所有 OOS 结果得到无偏绩效估计。
+        <br/>
+        <span style={{ fontSize: 11, color: '#cc88ff' }}>
+          🔒 参数一致性：IS 选出的参数直接用于 OOS，OOS 期间不重新优化，确保无前视偏差。
+        </span>
         <br />
         <span style={{ color: '#e8883a', fontSize: 11 }}>
           ⚠ 10年数据约 6～7 个窗口，每窗口内 IS 跑 86 种组合，耗时约 1～2 分钟。
@@ -1027,48 +1031,83 @@ function WfoPanel({ etfData, T }) {
 
           {/* 窗口明细表 */}
           <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, color: T.textBright, fontWeight: 600, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: T.textBright, fontWeight: 600, marginBottom: 6 }}>
               窗口明细
+            </div>
+            {/* IS = OOS 参数一致性说明 */}
+            <div style={{
+              padding: '8px 12px', marginBottom: 10,
+              background: '#9944ee18', border: '1px solid #9944ee44',
+              borderRadius: 6, fontSize: 11, color: T.textSub, lineHeight: 1.6,
+            }}>
+              ⚡ <b style={{ color: '#cc88ff' }}>参数一致性保证</b>：每个窗口的 OOS 期间
+              严格使用 IS 期选出的最佳参数，<b style={{ color: T.textBright }}>不重新优化、不事后调参</b>。
+              "IS→OOS 参数" 列同时标注 IS 选参结果 = OOS 实际使用参数。
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', fontSize: 11 }}>
                 <thead>
                   <tr>
-                    {['窗口', 'IS 期间', 'OOS 期间', 'IS 最优策略', 'OOS CAGR', 'OOS Sharpe', 'OOS MDD'].map(h => (
+                    {[
+                      { h: '窗口',            sub: '' },
+                      { h: 'IS 训练期',       sub: '样本内（选参）' },
+                      { h: 'OOS 验证期',      sub: '样本外（禁止重选参）' },
+                      { h: 'IS→OOS 参数',    sub: '两者完全一致 ✓' },
+                      { h: 'IS 评分',         sub: `按 ${wfoResult.optMetric} 排序` },
+                      { h: 'OOS CAGR',        sub: '' },
+                      { h: 'OOS Sharpe',      sub: '' },
+                      { h: 'OOS MDD',         sub: '' },
+                    ].map(({ h, sub }) => (
                       <th key={h} style={{
                         padding: '7px 10px', textAlign: 'left',
                         color: T.textMuted, fontWeight: 600,
                         borderBottom: `1px solid ${T.border}`, background: T.theadBg,
-                      }}>{h}</th>
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {h}
+                        {sub && <div style={{ fontSize: 9, color: T.textVMuted ?? T.textMuted, fontWeight: 400, marginTop: 1 }}>{sub}</div>}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {wfoResult.windowResults.map((w, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? T.rowEven : T.cardBg }}>
-                      <td style={{ padding: '6px 10px', color: T.textMuted }}>#{w.window}</td>
-                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: T.textSub, fontSize: 10 }}>
-                        {w.isStart} → {w.isEnd}
-                      </td>
-                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: T.textSub, fontSize: 10 }}>
-                        {w.oosStart} → {w.oosEnd}
-                      </td>
-                      <td style={{ padding: '6px 10px', color: T.textBright, fontSize: 10, maxWidth: 200 }}>
-                        {paramLabel(w.isBestParams)}
-                      </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace',
-                        color: (w.oosCagr ?? 0) >= 0 ? '#4fc86e' : '#ee4444' }}>
-                        {fmtPct(w.oosCagr)}
-                      </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace',
-                        color: (w.oosSharpe ?? 0) >= 0 ? '#4fc86e' : '#ee4444' }}>
-                        {fmtNum(w.oosSharpe)}
-                      </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#ee4444' }}>
-                        {fmtPct(w.oosMdd)}
-                      </td>
-                    </tr>
-                  ))}
+                  {wfoResult.windowResults.map((w, i) => {
+                    const isScoreVal = w.isScore != null ? (
+                      ['cagr', 'oosCagr'].includes(wfoResult.optMetric)
+                        ? fmtPct(w.isScore)
+                        : fmtNum(w.isScore)
+                    ) : '—';
+                    return (
+                      <tr key={i} style={{ background: i % 2 === 0 ? T.rowEven : T.cardBg }}>
+                        <td style={{ padding: '6px 10px', color: T.textMuted, fontWeight: 700 }}>#{w.window}</td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: T.textSub, fontSize: 10 }}>
+                          {w.isStart} → {w.isEnd}
+                        </td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: T.textBright, fontSize: 10, fontWeight: 600 }}>
+                          {w.oosStart} → {w.oosEnd}
+                        </td>
+                        {/* IS→OOS 参数（两者相同） */}
+                        <td style={{ padding: '6px 10px', fontSize: 10, maxWidth: 220 }}>
+                          <span style={{ color: '#cc88ff', fontWeight: 600 }}>{paramLabel(w.isBestParams)}</span>
+                          <span style={{ marginLeft: 6, fontSize: 9, color: '#4fc86e', opacity: 0.8 }}>OOS同</span>
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: T.textSub }}>
+                          {isScoreVal}
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace',
+                          color: (w.oosCagr ?? 0) >= 0 ? '#4fc86e' : '#ee4444' }}>
+                          {fmtPct(w.oosCagr)}
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace',
+                          color: (w.oosSharpe ?? 0) >= 0 ? '#4fc86e' : '#ee4444' }}>
+                          {fmtNum(w.oosSharpe)}
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#ee4444' }}>
+                          {fmtPct(w.oosMdd)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

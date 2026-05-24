@@ -1843,8 +1843,11 @@ export default function App() {
                   {/* 说明 */}
                   <div style={{fontSize:10,color:T.textVMuted,marginBottom:10,lineHeight:1.6}}>
                     <b style={{color:T.textSub}}>正确 WFO 逻辑</b>：① in-sample 跑 Grid Search(448种) → ② 按优化指标选最佳参数 →
-                    ③ 固定该参数跑 out-of-sample → ④ 记录绩效（不重新选参）→ ⑤ 串接所有 OOS 得总绩效。
+                    ③ <b style={{color:"#88bbff"}}>固定该参数</b>跑 out-of-sample → ④ 记录绩效（不重新选参）→ ⑤ 串接所有 OOS 得总绩效。
                     窗口比例：in-sample 70% / out-of-sample 30%。
+                    <span style={{color:"#88bbff",marginLeft:6}}>
+                      🔒 <b>IS / OOS 参数严格一致</b>：OOS 期使用的参数 = IS 期 Grid Search 选出的最优参数，绝不事后调整。
+                    </span>
                   </div>
 
                   {/* 优化指标选择 */}
@@ -1877,8 +1880,18 @@ export default function App() {
                         </div>
 
                         {/* ── 逐窗口明细表 ── */}
-                        <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>
+                        <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:6}}>
                           逐窗口明细（in-sample 选参 → out-of-sample 验证）
+                        </div>
+                        {/* IS = OOS 参数一致性说明 */}
+                        <div style={{
+                          padding:"8px 12px",marginBottom:10,
+                          background:"#4488ee14",border:"1px solid #4488ee40",
+                          borderRadius:6,fontSize:10,color:T.textSub,lineHeight:1.6,
+                        }}>
+                          ⚡ <b style={{color:"#88bbff"}}>参数一致性保证</b>：每个窗口的 OOS 期间
+                          严格使用 IS 期选出的最佳参数，<b style={{color:T.textBright}}>不重新优化、不事后调参</b>。
+                          下表各参数列（紫色）同时标注 IS 选参结果 = OOS 实际使用参数。
                         </div>
                         <div style={{overflowX:"auto",marginBottom:20}}>
                           <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:10,minWidth:900}}>
@@ -1888,10 +1901,10 @@ export default function App() {
                                   {h:"#",note:""},
                                   {h:"In-Sample 时间",note:"训练期"},
                                   {h:"Out-of-Sample 时间",note:"验证期"},
-                                  {h:"选出 TopN",note:"↑ in-sample 最优"},
-                                  {h:"动能回看期",note:"↑ in-sample 最优"},
-                                  {h:"调仓频率",note:"↑ in-sample 最优"},
-                                  {h:"市场过滤",note:"↑ in-sample 最优"},
+                                  {h:"选出 TopN",note:"IS→OOS（一致）"},
+                                  {h:"动能回看期",note:"IS→OOS（一致）"},
+                                  {h:"调仓频率",note:"IS→OOS（一致）"},
+                                  {h:"市场过滤",note:"IS→OOS（一致）"},
                                   {h:`IS ${optLabel}`,note:"in-sample 得分"},
                                   {h:"OOS CAGR",note:""},
                                   {h:"OOS Sharpe",note:""},
