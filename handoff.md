@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 8（回测修复 + 一键优化「应用并回测」按钮）
+更新时间：2026-05-24 Session 8（回测修复 + 应用并回测按钮 + 图表对齐）
 
 ## 项目结构
 
@@ -18,13 +18,28 @@ src/qqq/                      # QQQ 轮转策略模块（本 Session 新建，�
 
 ---
 
-## ✅ Session 8 完成（commits `41de388` · `70b11e9`）
+## ✅ Session 8 完成（commits `41de388` · `70b11e9` · `72ef43f` · `ffcdbd7`）
 
 ### 回测执行逻辑修复
 
 **问题**：`portfolioBacktest()` 中首个调仓日（`t === simStart`）的 Step 3（新持仓日内收益 open→close）被条件 `t > simStart` 跳过，导致建仓当天的日内收益遗漏。
 
 **修复**：`qqq-momentum.jsx:671`，将条件改为 `holdings.size > 0`，首日建仓同样计算日内收益。
+
+### QQQ轮转策略图表与成分股轮动对齐（`QqqRotationTab.jsx`，commit `ffcdbd7`）
+
+| 新增内容 | 说明 |
+|----------|------|
+| `EquityCurveChart` | 带年份刻度的净值曲线（策略蓝线 vs QQQ灰虚线） |
+| `DrawdownChart` | 红色填充回撤曲线，含年份刻度 |
+| `AnnualBarsChart` | 年度收益柱状图（策略 vs QQQ 并排） |
+| `MonthlyHeatmap` | 月度收益热图（绿红色块 + 年度汇总） |
+| `DualMetricCard` | 指标卡片显示策略值 + QQQ基准对比 |
+| 资金模拟 | 起始资金输入 → 策略/QQQ 最终金额 + 超额对比 |
+| 换仓次数 | 显示 tradeLog 长度 |
+| `toPortMetrics()` | calcMetrics（小数）→ 百分比格式转换函数 |
+
+保留不变：`SimpleMetricCard`（WFO区域）、`MiniLineChart`（OOS净值曲线）。
 
 ### 一键优化「应用并回测」按钮（`QqqRotationTab.jsx`）
 
