@@ -668,7 +668,8 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
       }
 
       // ── Step 3: 新持仓从 open[t] → close[t] 的日内收益 ──
-      if (t > simStart && holdings.size > 0) {
+      // 首个调仓日（t === simStart）同样计算，避免遗漏建仓当天的日内收益
+      if (holdings.size > 0) {
         let portRet = 0, cnt = 0;
         for (const sym of holdings) {
           const cl = symCloses.get(sym), op = symOpens.get(sym);

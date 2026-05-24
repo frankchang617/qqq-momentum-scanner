@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 7（QQQ 轮转策略新 Tab 全部完成 ✅）
+更新时间：2026-05-24 Session 8（回测执行逻辑修复）
 
 ## 项目结构
 
@@ -15,6 +15,16 @@ src/qqq/                      # QQQ 轮转策略模块（本 Session 新建，�
     qqqWfo.js                 # Walk Forward Optimization（单窗口70/30）
   QqqRotationTab.jsx          # 完整 Tab 界面（Step1/信号/Step2/WFO）
 ```
+
+---
+
+## ✅ Session 8 完成（本次）
+
+### 回测执行逻辑修复
+
+**问题**：`portfolioBacktest()` 中首个调仓日（`t === simStart`）的 Step 3（新持仓日内收益 open→close）被条件 `t > simStart` 跳过，导致建仓当天的日内收益遗漏。
+
+**修复**：`qqq-momentum.jsx:671`，将条件改为 `holdings.size > 0`，首日建仓同样计算日内收益。
 
 ---
 
