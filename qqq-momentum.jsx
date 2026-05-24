@@ -1404,9 +1404,8 @@ export default function App() {
               <button disabled={histLoading} onClick={loadHistData} style={{
                 padding:"5px 16px",borderRadius:6,cursor:histLoading?"not-allowed":"pointer",
                 fontFamily:"inherit",fontSize:11,
-                background: histLoading?"transparent":(darkMode?"#004488":"#0055cc"),
-                border:"1px solid #4488ee",
-                color: histLoading ? T.textSub : (darkMode?"#88ccff":"#ffffff"),
+                background:darkMode?"#004488":"#0055cc",
+                border:"1px solid #4488ee",color:darkMode?"#88ccff":"#ffffff",
                 opacity:histLoading?0.6:1}}>
                 {histLoading?"加载中…":"加载历史数据"}
               </button>
