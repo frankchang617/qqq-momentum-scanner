@@ -326,7 +326,44 @@ STEP 2 · 选择策略并回测               ← 卡片
 ▶ MODE B  Walk Forward Optimization   ← 可折叠，展开后渲染 WfoPanel
 ```
 
-**当前状态**：代码已修改，待验证运行。
+**当前状态**：已 commit `dd07c97` 并推送 Vercel。
+
+---
+
+### 进行中：一键优化「应用并回测」打通 Step 2
+
+**问题**：一键优化完成后，点「应用并回测」没有效果——StrategyRanking 已有 `onApply` prop，但 OptimizePanel 未传入；且各策略 Panel 各管自己的 state，与优化结果不互通。
+
+**解决方案**（对齐 QQQ 成分股轮动做法）：
+1. `EtfStrategyTab` 新增 `pendingOverride` state（`{ params, ts } | null`），`handleApplyAndRun` callback
+2. 每个策略 Panel 接受 `pendingOverride` prop + `useRef` 防重入 + run 函数重构为接受显式参数（绕过 state 异步更新）
+3. `OptimizePanel` 接受 `onApply` prop，透传给 `StrategyRanking`（排名表）和五维最优卡片
+4. 点击时：切换 Tab → 折叠优化面板 → 设置 pendingOverride → Panel 的 useEffect 触发 → 自动填参数 + 运行回测
+
+**当前进度**：✅ 全部改动完成，已 commit 并推送
+
+**改动文件**：`src/etf/EtfStrategyTab.jsx`（仅此一个文件）
+
+**改动清单**：
+| 位置 | 改动 |
+|------|------|
+| import 行 | 新增 `useEffect` |
+| `MomentumPanel` | 接受 `pendingOverride` prop；`run` 拆为 `runWithParams(p)`（显式参数）+ `run()`；新增 `useEffect` 监听 override |
+| `DualMomentumPanel` | 同上模式 |
+| `VolControlPanel` | 同上模式 |
+| `OptimizePanel` 签名 | 新增 `darkMode, onApply` 参数 |
+| `StrategyRanking` 调用 | 传入 `onApply={onApply}` |
+| 五维最优卡片 | 每张加「应用并回测」按钮（`onApply && ...`） |
+| `EtfStrategyTab` 主组件 | 新增 `pendingOverride` state；新增 `handleApplyAndRun` callback（切 Tab + 折叠优化面板 + 设置 override） |
+| Step 2 Panel 渲染 | 三个 Panel 传入 `pendingOverride={pendingOverride}` |
+| OptimizePanel 渲染 | 传入 `onApply={handleApplyAndRun}` |
+
+**流程**（点击「应用并回测」后）：
+1. `handleApplyAndRun(result)` → 切换到对应 Tab + 折叠优化手风琴 + 设置 `pendingOverride`
+2. 对应 Panel 挂载（或已挂载），`useEffect` 检测到新 ts → 跳过 state 异步，直接用 `runWithParams(p)` 立即运行
+3. 结果展示在 STEP 2 内
+
+**关键防护**：`lastOverrideTs` ref 防止同一次 override 被重复执行（`ts <= lastTs` 则跳过）
 
 ---
 

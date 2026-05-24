@@ -10,7 +10,7 @@
  *   - 每个策略有独立的 params / result state
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 // 数据层
 import { fetchEtfData, ETF_SYMBOLS } from './data/fetchEtfData.js';
@@ -143,7 +143,7 @@ function ResultsPanel({ result, qqqMetrics, spyMetrics, T }) {
 }
 
 // ── 策略1面板：强势轮动 ──
-function MomentumPanel({ etfData, T }) {
+function MomentumPanel({ etfData, T, pendingOverride }) {
   const LOOKBACK_OPTS = [
     { val: 21, label: '1M（21日）' },
     { val: 63, label: '3M（63日）' },
@@ -155,13 +155,15 @@ function MomentumPanel({ etfData, T }) {
   const [running, setRunning] = useState(false);
   const [qqqMetrics, setQqqMetrics] = useState(null);
   const [spyMetrics, setSpyMetrics] = useState(null);
+  const lastOverrideTs = useRef(0);
 
-  const run = useCallback(() => {
-    if (!etfData || running) return;
+  // 核心：接受显式参数运行（绕过 state 异步更新，与 QQQ 同款）
+  const runWithParams = useCallback((p) => {
+    if (!etfData) return;
     setRunning(true);
     setTimeout(() => {
       try {
-        const bt = backtestMomentum(etfData.closes, etfData.timestamps, params);
+        const bt = backtestMomentum(etfData.closes, etfData.timestamps, p);
         const m = calcMetrics(bt.equityCurve, bt.timestamps);
         const startIdx = etfData.timestamps.indexOf(bt.timestamps[0]);
         const endIdx = startIdx + bt.timestamps.length;
@@ -175,7 +177,23 @@ function MomentumPanel({ etfData, T }) {
       }
       setRunning(false);
     }, 0);
-  }, [etfData, params, running]);
+  }, [etfData]);
+
+  const run = useCallback(() => runWithParams(params), [params, runWithParams]);
+
+  // 监听外部「应用并回测」指令
+  useEffect(() => {
+    if (!pendingOverride || pendingOverride.params.strategy !== 'momentum') return;
+    if (pendingOverride.ts <= lastOverrideTs.current) return;
+    lastOverrideTs.current = pendingOverride.ts;
+    const p = {
+      lookback: pendingOverride.params.lookback,
+      topN: pendingOverride.params.topN,
+      defensiveAsset: pendingOverride.params.defensiveAsset,
+    };
+    setParams(p);
+    runWithParams(p);
+  }, [pendingOverride, runWithParams]);
 
   return (
     <div>
@@ -232,19 +250,20 @@ function MomentumPanel({ etfData, T }) {
 }
 
 // ── 策略2面板：双动能 ──
-function DualMomentumPanel({ etfData, T }) {
+function DualMomentumPanel({ etfData, T, pendingOverride }) {
   const [params, setParams] = useState({ lookback: 126, maFilter: 200, defensiveAsset: 'SHY' });
   const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
   const [qqqMetrics, setQqqMetrics] = useState(null);
   const [spyMetrics, setSpyMetrics] = useState(null);
+  const lastOverrideTs = useRef(0);
 
-  const run = useCallback(() => {
-    if (!etfData || running) return;
+  const runWithParams = useCallback((p) => {
+    if (!etfData) return;
     setRunning(true);
     setTimeout(() => {
       try {
-        const bt = backtestDualMomentum(etfData.closes, etfData.timestamps, params);
+        const bt = backtestDualMomentum(etfData.closes, etfData.timestamps, p);
         const m = calcMetrics(bt.equityCurve, bt.timestamps);
         const startIdx = etfData.timestamps.indexOf(bt.timestamps[0]);
         const endIdx = startIdx + bt.timestamps.length;
@@ -256,7 +275,22 @@ function DualMomentumPanel({ etfData, T }) {
       } catch (e) { console.error(e); }
       setRunning(false);
     }, 0);
-  }, [etfData, params, running]);
+  }, [etfData]);
+
+  const run = useCallback(() => runWithParams(params), [params, runWithParams]);
+
+  useEffect(() => {
+    if (!pendingOverride || pendingOverride.params.strategy !== 'dualMomentum') return;
+    if (pendingOverride.ts <= lastOverrideTs.current) return;
+    lastOverrideTs.current = pendingOverride.ts;
+    const p = {
+      lookback: pendingOverride.params.lookback,
+      maFilter: pendingOverride.params.maFilter,
+      defensiveAsset: pendingOverride.params.defensiveAsset,
+    };
+    setParams(p);
+    runWithParams(p);
+  }, [pendingOverride, runWithParams]);
 
   return (
     <div>
@@ -312,7 +346,7 @@ function DualMomentumPanel({ etfData, T }) {
 }
 
 // ── 策略3面板：波动率控管 ──
-function VolControlPanel({ etfData, T }) {
+function VolControlPanel({ etfData, T, pendingOverride }) {
   const [params, setParams] = useState({
     volSource: 'REALIZED', lowThreshold: 20, highThreshold: 30, defensiveAsset: 'SHY',
   });
@@ -320,18 +354,15 @@ function VolControlPanel({ etfData, T }) {
   const [running, setRunning] = useState(false);
   const [qqqMetrics, setQqqMetrics] = useState(null);
   const [spyMetrics, setSpyMetrics] = useState(null);
+  const lastOverrideTs = useRef(0);
 
-  const run = useCallback(() => {
-    if (!etfData || running) return;
-    if (params.lowThreshold >= params.highThreshold) {
-      alert('低阈值必须小于高阈值');
-      return;
-    }
+  const runWithParams = useCallback((p) => {
+    if (!etfData) return;
     setRunning(true);
     setTimeout(() => {
       try {
         const bt = backtestVolControl(
-          etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20, params
+          etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20, p
         );
         const m = calcMetrics(bt.equityCurve, bt.timestamps);
         const startIdx = etfData.timestamps.indexOf(bt.timestamps[0]);
@@ -344,7 +375,29 @@ function VolControlPanel({ etfData, T }) {
       } catch (e) { console.error(e); }
       setRunning(false);
     }, 0);
-  }, [etfData, params, running]);
+  }, [etfData]);
+
+  const run = useCallback(() => {
+    if (params.lowThreshold >= params.highThreshold) {
+      alert('低阈值必须小于高阈值');
+      return;
+    }
+    runWithParams(params);
+  }, [params, runWithParams]);
+
+  useEffect(() => {
+    if (!pendingOverride || pendingOverride.params.strategy !== 'volControl') return;
+    if (pendingOverride.ts <= lastOverrideTs.current) return;
+    lastOverrideTs.current = pendingOverride.ts;
+    const p = {
+      volSource:      pendingOverride.params.volSource      ?? 'REALIZED',
+      lowThreshold:   pendingOverride.params.lowThreshold   ?? 20,
+      highThreshold:  pendingOverride.params.highThreshold  ?? 30,
+      defensiveAsset: pendingOverride.params.defensiveAsset ?? 'SHY',
+    };
+    setParams(p);
+    runWithParams(p);
+  }, [pendingOverride, runWithParams]);
 
   return (
     <div>
@@ -430,7 +483,7 @@ function VolControlPanel({ etfData, T }) {
 }
 
 // ── 一键优化面板 ──
-function OptimizePanel({ etfData, T }) {
+function OptimizePanel({ etfData, T, darkMode, onApply }) {
   const [results, setResults]       = useState([]);
   const [running, setRunning]       = useState(false);
   const [progress, setProgress]     = useState({ done: 0, total: 86 });
@@ -513,7 +566,7 @@ function OptimizePanel({ etfData, T }) {
           </div>
 
           {section === 'ranking' && (
-            <StrategyRanking results={results} topN={20} T={T} />
+            <StrategyRanking results={results} topN={20} T={T} onApply={onApply} />
           )}
 
           {section === 'heatmap' && (
@@ -559,7 +612,7 @@ function OptimizePanel({ etfData, T }) {
                     <div style={{ fontSize: 11, color: T.textBright, marginBottom: 8 }}>
                       {paramLabel(r.params)}
                     </div>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                       {[
                         ['CAGR', fmtPct(r.cagr)],
                         ['Sharpe', fmtNum(r.sharpe)],
@@ -571,6 +624,16 @@ function OptimizePanel({ etfData, T }) {
                           <span style={{ color: T.textBright, fontFamily: 'monospace' }}>{val}</span>
                         </div>
                       ))}
+                      {onApply && (
+                        <button onClick={() => onApply(r)} style={{
+                          marginLeft: 'auto', padding: '3px 10px', fontSize: 10,
+                          borderRadius: 4, cursor: 'pointer',
+                          background: '#4488ee22', border: '1px solid #4488ee66',
+                          color: '#4488ee', fontFamily: 'inherit',
+                        }}>
+                          应用并回测
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -771,7 +834,17 @@ export default function EtfStrategyTab({ T, darkMode }) {
   const [activeStrat, setActiveStrat] = useState('momentum');
   const [showOpt, setShowOpt]       = useState(false);
   const [showWfo, setShowWfo]       = useState(false);
+  const [pendingOverride, setPendingOverride] = useState(null);
   const abortRef = useRef(null);
+
+  // 一键优化「应用并回测」：切换到对应策略 Tab + 触发参数应用
+  const handleApplyAndRun = useCallback((result) => {
+    const tabMap = { momentum: 'momentum', dualMomentum: 'dual', volControl: 'volControl' };
+    const tab = tabMap[result.params.strategy] || 'momentum';
+    setActiveStrat(tab);
+    setShowOpt(false); // 折叠一键优化面板
+    setPendingOverride({ params: result.params, ts: Date.now() });
+  }, []);
 
   // ── 加载数据 ──
   const handleLoad = useCallback(async () => {
@@ -908,9 +981,9 @@ export default function EtfStrategyTab({ T, darkMode }) {
           </div>
         )}
 
-        {etfData && activeStrat === 'momentum'  && <MomentumPanel    etfData={etfData} T={T} />}
-        {etfData && activeStrat === 'dual'       && <DualMomentumPanel etfData={etfData} T={T} />}
-        {etfData && activeStrat === 'volControl' && <VolControlPanel  etfData={etfData} T={T} />}
+        {etfData && activeStrat === 'momentum'  && <MomentumPanel    etfData={etfData} T={T} pendingOverride={pendingOverride} />}
+        {etfData && activeStrat === 'dual'       && <DualMomentumPanel etfData={etfData} T={T} pendingOverride={pendingOverride} />}
+        {etfData && activeStrat === 'volControl' && <VolControlPanel  etfData={etfData} T={T} pendingOverride={pendingOverride} />}
       </div>
 
       {/* ── 参数全量扫描（一键优化，可折叠） ── */}
@@ -939,7 +1012,7 @@ export default function EtfStrategyTab({ T, darkMode }) {
               border: `1px solid ${T.border}`, borderTop: 'none',
               borderRadius: '0 0 8px 8px',
             }}>
-              <OptimizePanel etfData={etfData} T={T} darkMode={darkMode} />
+              <OptimizePanel etfData={etfData} T={T} darkMode={darkMode} onApply={handleApplyAndRun} />
             </div>
           )}
         </div>
