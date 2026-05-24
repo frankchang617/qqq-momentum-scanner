@@ -471,3 +471,44 @@ STEP 2 · 选择策略并回测                 ← 卡片（仅保留 3 策略 
 ### 下一步
 - 无遗留任务，Session 4 完整交付
 - 若后续需调整：可在 `wfo.js` `windowResults` 中新增 `oosParams: bestParams` 字段，代码层面显式标明 OOS 参数
+
+---
+
+## Session 5 🔄 进行中（2026-05-24）
+
+### 主题：WFO 逻辑重构 + Mode A/B 完整化
+
+### 已确认改动计划（5 项，仅改 `qqq-momentum.jsx`）
+
+| # | 改动项 | 状态 |
+|---|--------|------|
+| 1 | 数据加载新增 `10Y` 选项 | 🔄 进行中 |
+| 2 | `runWFO()` 改为单窗口（前70% IS + 后30% OOS） | 🔄 进行中 |
+| 3 | WFO 窗口明细表：4 个参数各占独立一列 | 🔄 进行中 |
+| 4 | STEP 2 明确标记为 `MODE A · Fixed Parameter Backtest` | 🔄 进行中 |
+| 5 | 新增 Mode A vs Mode B 最终对比汇总表 | 🔄 进行中 |
+
+### 关键设计决策
+
+- **WFO 单窗口**：`inEnd = Math.floor(N * 0.7)`，`outStart = inEnd`，`outEnd = N`，不再滚动
+- **参数网格保持不变**：4×7×4×4 = 448 种组合（综合评分/20/50/200 × Top3-30 × 日/周/月/季 × 无/MA50/MA100/MA200）
+- **市场过滤不通过 → 现金**（现有逻辑保持）
+- **ETF 模块不涉及**，只改 QQQ 成分股轮动这一侧
+
+### 当前进度
+- [x] 需求确认、Gap Analysis 完成
+- [x] 改动计划用户已批准
+- [x] 读取 `qqq-momentum.jsx` 当前 WFO/Mode A 代码结构
+- [x] **改动1**：`runWFO()` 改为单窗口（前70% IS / 后30% OOS，移除滚动循环）
+- [x] **改动2**：STEP 1 数据加载新增 10Y 选项（附 WFO 紫色小标签）
+- [ ] **改动3**：WFO 窗口明细表时间列拆为 4 列（IS Start/End、OOS Start/End）
+- [ ] **改动4**：WFO 标题/按钮文字更新（去掉"滚动验证"改为"单窗口"描述）
+- [ ] **改动5**：已加载数据提示文字支持 10Y 显示
+- [ ] 构建验证 + 推送
+
+### 关键代码变更（runWFO）
+- 移除 `while(pos+inDays+42<N)` 滚动循环
+- 改为：`inEnd = Math.round(N*0.70)`，直接用 `[0, inEnd)` 做 IS，`[inEnd, N)` 做 OOS
+- windowResults 从数组改为单元素 `[windowResult]`，windowCount 固定返回 1
+- windowResult 新字段：`inTsStart/inTsEnd/outTsStart/outTsEnd`（独立时间戳，供表格4列展示）
+- 返回值新增 `inDays`、`outDays` 字段
