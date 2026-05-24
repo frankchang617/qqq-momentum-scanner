@@ -1640,7 +1640,7 @@ export default function App() {
                 background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,cursor:"pointer",
                 color:T.textSub,fontFamily:"inherit",fontSize:11,width:"100%",textAlign:"left"}}>
                 <span style={{color:"#aa66ff",fontWeight:700}}>{showWfo?"▼":"▶"}</span>
-                <span style={{background:"#5522aa",color:"#ddb8ff",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:4,letterSpacing:1}}>MODE B</span>
+                <span style={{background:"#5522aa",color:darkMode?"#ddb8ff":"#ffffff",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:4,letterSpacing:1}}>MODE B</span>
                 Walk Forward Optimization（滚动验证，无未来数据）
                 {wfoResult&&<span style={{marginLeft:"auto",color:"#00aa44",fontSize:10}}>✓ 已完成</span>}
               </button>
