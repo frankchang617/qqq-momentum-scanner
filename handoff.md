@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 3（ETF 策略步骤结构对齐 QQQ 风格）
+更新时间：2026-05-24 Session 3（ETF 步骤结构对齐 QQQ + 一键优化「应用并回测」打通 Step 2）
 
 ## 项目结构
 
