@@ -850,6 +850,7 @@ export default function App() {
   const [btEntry,     setBtEntry]     = useState("touch");
   // 策略回测状态
   const [activeTab,   setActiveTab]   = useState("scanner");
+  const [btSubTab,    setBtSubTab]    = useState("qqq"); // 'qqq' | 'etf'
   const [histData,    setHistData]    = useState(null);
   const [histTs,      setHistTs]      = useState(null);
   const [histRange,   setHistRange]   = useState("3y");
@@ -1067,7 +1068,7 @@ export default function App() {
         </div>
         <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
           {/* 标签切换 */}
-          {[{id:"scanner",label:"扫描器"},{id:"backtest",label:"策略回测"},{id:"etf",label:"ETF 跨资产策略"}].map(tab=>(
+          {[{id:"scanner",label:"扫描器"},{id:"backtest",label:"策略回测"}].map(tab=>(
             <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
               padding:"5px 14px", borderRadius:6, cursor:"pointer", fontFamily:"inherit", fontSize:12,
               background: activeTab===tab.id?T.btnActiveBg:"transparent",
@@ -1387,7 +1388,31 @@ export default function App() {
 
       {/* ══════════════ 策略回测标签 ══════════════ */}
       {activeTab === "backtest" && (
-        <div style={{padding:"20px 28px"}}>
+        <div>
+          {/* 二级 Tab：QQQ成分股轮动 | ETF跨资产策略 */}
+          <div style={{
+            display:"flex", gap:8, padding:"10px 28px 0",
+            borderBottom:`1px solid ${T.navBorder}`, background:T.cardBg,
+          }}>
+            {[{id:"qqq",label:"QQQ 成分股轮动"},{id:"etf",label:"ETF 跨资产策略"}].map(sub=>(
+              <button key={sub.id} onClick={()=>setBtSubTab(sub.id)} style={{
+                padding:"7px 18px", borderRadius:"6px 6px 0 0",
+                cursor:"pointer", fontFamily:"inherit", fontSize:12,
+                background: btSubTab===sub.id ? T.pageBg : "transparent",
+                border:`1px solid ${btSubTab===sub.id ? T.navBorder : "transparent"}`,
+                borderBottom: btSubTab===sub.id ? `1px solid ${T.pageBg}` : "none",
+                marginBottom: btSubTab===sub.id ? -1 : 0,
+                color: btSubTab===sub.id ? T.textBright : T.textSub,
+                fontWeight: btSubTab===sub.id ? 600 : 400,
+              }}>{sub.label}</button>
+            ))}
+          </div>
+
+          {/* ETF 跨资产策略内容 */}
+          {btSubTab === "etf" && <EtfStrategyTab T={T} darkMode={darkMode} />}
+
+          {/* QQQ 成分股轮动内容 */}
+          {btSubTab === "qqq" && <div style={{padding:"20px 28px"}}>
 
           {/* 免责声明 */}
           <div style={{padding:"8px 14px",background:darkMode?"#1a1200":"#fffbe6",border:`1px solid #cc880044`,borderRadius:6,marginBottom:20,fontSize:11,color:"#cc8800"}}>
@@ -1831,12 +1856,8 @@ export default function App() {
             </div>
           )}
 
+          </div>}
         </div>
-      )}
-
-      {/* ══════════════ ETF 跨资产策略标签 ══════════════ */}
-      {activeTab === "etf" && (
-        <EtfStrategyTab T={T} darkMode={darkMode} />
       )}
 
       <style>{`

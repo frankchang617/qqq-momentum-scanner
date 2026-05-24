@@ -284,7 +284,11 @@ src/etf/
 - [x] `src/etf/EtfStrategyTab.jsx` — 完整主容器（含三策略面板 + 一键优化 + WFO）
 - [x] `src/etf/EtfStrategyTab.jsx` — 完整主容器
 - [x] `qqq-momentum.jsx` — 加入 import + 第三个 Tab `"etf"`
-- [ ] **构建报错修复中**：import 路径错误（`./etf/` → `./src/etf/`），`qqq-momentum.jsx` 在根目录，需用 `./src/etf/EtfStrategyTab.jsx`
+- [x] 构建成功（c94d910），已推送 GitHub / Vercel
+- [ ] **UI 修正中**：误将 ETF 策略做成顶栏第三个 Tab，应改为「策略回测」内的二级 Tab（方案A）
+  - 顶栏恢复 2 个 Tab（扫描器 | 策略回测）
+  - 策略回测内顶部加二级 Tab：`[QQQ 成分股轮动]` `[ETF 跨资产策略]`
+  - 新增 `btSubTab` state（'qqq' | 'etf'），已有 backtest 内容切入 'qqq'，EtfStrategyTab 切入 'etf'
 
 ### 关键代码约定（来自现有代码分析）
 - fetch 模式：`/api/yahoo?symbol=XXX&range=10y`，VIX 用 `encodeURIComponent('^VIX')`
