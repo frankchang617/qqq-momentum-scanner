@@ -389,7 +389,8 @@ async function fetchCandlesOHLC(symbol, range, signal) {
   }
 }
 
-// 扩展历史数据（使用 adjclose，含时间戳）
+// 扩展历史数据（adjclose + adjOpen，含时间戳）
+// adjOpen = open × (adjclose / close)，标准复权开盘价处理方式
 async function fetchCandlesExtended(symbol, range, signal) {
   const url = `/api/yahoo?symbol=${symbol}&range=${range}`;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -402,10 +403,18 @@ async function fetchCandlesExtended(symbol, range, signal) {
       if (!result) return null;
       const tss = result.timestamp;
       const adj = result.indicators?.adjclose?.[0]?.adjclose;
+      const q   = result.indicators?.quote?.[0]; // 原始 OHLCV（用于计算 adjOpen）
       if (!tss || !adj || adj.length < 20) return null;
       const rows = [];
       for (let i = 0; i < tss.length; i++) {
-        if (adj[i] != null && adj[i] > 0) rows.push({ c: adj[i], ts: tss[i] });
+        if (adj[i] != null && adj[i] > 0) {
+          const rawClose = q?.close?.[i];
+          const rawOpen  = q?.open?.[i];
+          // 复权比例：adjClose / rawClose；rawOpen 乘以同比例得到 adjOpen
+          const scale   = rawClose > 0 ? adj[i] / rawClose : 1;
+          const adjOpen = rawOpen != null ? rawOpen * scale : adj[i]; // 无 open 时退回 adjClose
+          rows.push({ c: adj[i], o: adjOpen, ts: tss[i] });
+        }
       }
       return rows.length >= 20 ? rows : null;
     } catch (e) {
@@ -588,6 +597,15 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
   const simStart = Math.max(rangeStart, 205);
   if (simStart >= N - 10) return { equityCurve:[1], timestamps:[], turnoverCount:0, simStart };
 
+  // 预提取 closes[] / opens[] 数组（支持新版 {closes,opens} 对象或旧版 flat array）
+  const symCloses = new Map();
+  const symOpens  = new Map();
+  for (const sym of symbols) {
+    const d = histData.get(sym);
+    if (d && d.closes) { symCloses.set(sym, d.closes); symOpens.set(sym, d.opens ?? null); }
+    else               { symCloses.set(sym, d);        symOpens.set(sym, null); }
+  }
+
   const equityCurve = [];
   let equity = 1.0;
   let holdings = new Set();
@@ -597,9 +615,20 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
     const isRebalDay = (t === simStart) || ((t - simStart) % rebalInterval === 0);
 
     if (isRebalDay) {
-      const d = t - 1; // 决策基于前一日数据（无未来数据）
+      // ── Step 1: 调仓前，旧持仓从 close[t-1] → open[t] 的隔夜收益 ──
+      if (t > simStart && holdings.size > 0) {
+        let portRet = 0, cnt = 0;
+        for (const sym of holdings) {
+          const cl = symCloses.get(sym), op = symOpens.get(sym);
+          if (op?.[t] != null && cl?.[t-1] != null)      { portRet += op[t] / cl[t-1] - 1; cnt++; }
+          else if (cl?.[t] != null && cl?.[t-1] != null) { portRet += cl[t] / cl[t-1] - 1; cnt++; }
+        }
+        if (cnt > 0) equity *= (1 + portRet / cnt);
+      }
 
-      // 市场过滤：QQQ 收盘 < MAx → 全部转现金
+      // ── Step 2: 用 T-1 收盘信号重新选股，更新持仓 ──
+      const d = t - 1; // 决策基于前一日收盘（无未来数据）
+
       let inMarket = true;
       if (maFilterDays > 0 && d >= maFilterDays) {
         const slice = qqqCloses.slice(d - maFilterDays, d);
@@ -612,17 +641,17 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
         holdings = new Set();
       } else {
         const ranked = symbols.map(sym => {
-          const c = histData.get(sym);
-          if (!c || !c[d]) return null;
+          const cl = symCloses.get(sym);
+          if (!cl || !cl[d]) return null;
           let score = null;
-          if (sortMetric==='ret20' && d>=20 && c[d-20])
-            score = (c[d]-c[d-20])/c[d-20];
-          else if (sortMetric==='ret50' && d>=50 && c[d-50])
-            score = (c[d]-c[d-50])/c[d-50];
-          else if (sortMetric==='ret200' && d>=200 && c[d-200])
-            score = (c[d]-c[d-200])/c[d-200];
-          else if (sortMetric==='score' && d>=200 && c[d-20] && c[d-50] && c[d-200]) {
-            const r20=(c[d]-c[d-20])/c[d-20], r50=(c[d]-c[d-50])/c[d-50], r200=(c[d]-c[d-200])/c[d-200];
+          if (sortMetric==='ret20' && d>=20 && cl[d-20])
+            score = (cl[d]-cl[d-20])/cl[d-20];
+          else if (sortMetric==='ret50' && d>=50 && cl[d-50])
+            score = (cl[d]-cl[d-50])/cl[d-50];
+          else if (sortMetric==='ret200' && d>=200 && cl[d-200])
+            score = (cl[d]-cl[d-200])/cl[d-200];
+          else if (sortMetric==='score' && d>=200 && cl[d-20] && cl[d-50] && cl[d-200]) {
+            const r20=(cl[d]-cl[d-20])/cl[d-20], r50=(cl[d]-cl[d-50])/cl[d-50], r200=(cl[d]-cl[d-200])/cl[d-200];
             score = r20*0.45+r50*0.35+r200*0.20;
           }
           return score!=null ? { sym, score } : null;
@@ -636,19 +665,32 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
         for (const s of newH) { if (!holdings.has(s)) turnoverCount++; }
         holdings = newH;
       }
+
+      // ── Step 3: 新持仓从 open[t] → close[t] 的日内收益 ──
+      if (t > simStart && holdings.size > 0) {
+        let portRet = 0, cnt = 0;
+        for (const sym of holdings) {
+          const cl = symCloses.get(sym), op = symOpens.get(sym);
+          if (op?.[t] != null && cl?.[t] != null)        { portRet += cl[t] / op[t] - 1; cnt++; }
+          else if (cl?.[t] != null && cl?.[t-1] != null) { portRet += cl[t] / cl[t-1] - 1; cnt++; }
+        }
+        if (cnt > 0) equity *= (1 + portRet / cnt);
+      }
+
+    } else {
+      // ── 非调仓日：close[t-1] → close[t] 收益 ──
+      if (t > simStart && holdings.size > 0) {
+        let portRet = 0, cnt = 0;
+        for (const sym of holdings) {
+          const cl = symCloses.get(sym);
+          if (!cl?.[t] || !cl?.[t-1]) continue;
+          portRet += cl[t] / cl[t-1] - 1;
+          cnt++;
+        }
+        if (cnt > 0) equity *= (1 + portRet / cnt);
+      }
     }
 
-    // 当日组合收益（t vs t-1 收盘价）
-    if (t > simStart && holdings.size > 0) {
-      let portRet = 0, cnt = 0;
-      for (const sym of holdings) {
-        const c = histData.get(sym);
-        if (!c || !c[t] || !c[t-1]) continue;
-        portRet += (c[t]-c[t-1])/c[t-1];
-        cnt++;
-      }
-      if (cnt > 0) equity *= (1 + portRet/cnt);
-    }
     equityCurve.push(equity);
   }
   return { equityCurve, timestamps: commonTs.slice(simStart, N), turnoverCount, simStart };
@@ -827,7 +869,7 @@ function QqqSignalCard({ histData, histTs, params, T, darkMode }) {
     const N   = histTs.length;
     const d   = N - 1;
     const date = new Date(histTs[d] * 1000).toISOString().slice(0, 10);
-    const qqqCloses = histData.get('__QQQ__');
+    const qqqCloses = histData.get('__QQQ__').closes; // 从 {closes,opens} 取收盘价
 
     // 市场过滤
     const maDays = marketFilter==='ma50'?50 : marketFilter==='ma100'?100 : marketFilter==='ma200'?200 : 0;
@@ -845,7 +887,8 @@ function QqqSignalCard({ histData, histTs, params, T, darkMode }) {
     // 对成分股打分
     const symbols = [...histData.keys()].filter(k => k !== '__QQQ__');
     const ranked = symbols.map(sym => {
-      const c = histData.get(sym);
+      const raw = histData.get(sym);
+      const c = raw?.closes ?? raw; // 兼容 {closes,opens} 和旧版 flat array
       if (!c || !c[d]) return null;
       let score = null;
       if (sortMetric==='ret20'  && d>=20  && c[d-20])  score=(c[d]-c[d-20])/c[d-20];
@@ -1073,8 +1116,9 @@ export default function App() {
     try {
       const qqqRaw = await fetchCandlesExtended('QQQ', histRange, signal);
       if (!qqqRaw) { setHistLoading(false); return; }
-      const qqqTs = qqqRaw.map(d=>d.ts);
-      const qqqAdj = qqqRaw.map(d=>d.c);
+      const qqqTs     = qqqRaw.map(d=>d.ts);
+      const qqqAdj    = qqqRaw.map(d=>d.c);
+      const qqqAdjOpen= qqqRaw.map(d=>d.o); // 复权开盘价
       const tsIdx = new Map(qqqTs.map((t,i)=>[t,i]));
       const Nq = qqqTs.length;
       setHistProg({done:1,total:QQQ_COMPONENTS.length+1});
@@ -1094,17 +1138,22 @@ export default function App() {
       }
       if(signal.aborted) return;
 
-      // 对齐到 QQQ 时间轴
+      // 对齐到 QQQ 时间轴，每支股票存 { closes, opens }
       const aligned = new Map();
-      aligned.set('__QQQ__', qqqAdj);
+      aligned.set('__QQQ__', { closes: qqqAdj, opens: qqqAdjOpen });
       for (const [sym, rows] of rawMap) {
-        const arr = new Array(Nq).fill(null);
-        for (const { c, ts } of rows) {
-          const idx = tsIdx.get(ts); if(idx!==undefined) arr[idx]=c;
+        const closesArr = new Array(Nq).fill(null);
+        const opensArr  = new Array(Nq).fill(null);
+        for (const { c, o, ts } of rows) {
+          const idx = tsIdx.get(ts);
+          if (idx !== undefined) { closesArr[idx] = c; opensArr[idx] = o; }
         }
         // 前向填充空值（处理停牌等缺口）
-        for (let j=1;j<Nq;j++) { if(arr[j]===null&&arr[j-1]!==null) arr[j]=arr[j-1]; }
-        aligned.set(sym, arr);
+        for (let j=1;j<Nq;j++) {
+          if (closesArr[j]===null && closesArr[j-1]!==null) closesArr[j]=closesArr[j-1];
+          if (opensArr[j]===null  && opensArr[j-1]!==null)  opensArr[j]=opensArr[j-1];
+        }
+        aligned.set(sym, { closes: closesArr, opens: opensArr });
       }
       setHistData(aligned); setHistTs(qqqTs); setHistLoading(false);
     } catch(e) { if(!signal.aborted){ console.error(e); setHistLoading(false); } }
@@ -1114,7 +1163,7 @@ export default function App() {
   const runStratBacktest = useCallback((overrideParams)=>{
     if(!histData||!histTs) return;
     const params = overrideParams ?? stratParams;
-    const qqqCloses=histData.get('__QQQ__');
+    const qqqCloses=histData.get('__QQQ__').closes;
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
     const bt=portfolioBacktest(stockData,histTs,qqqCloses,params);
     const metrics=calcPortMetrics(bt.equityCurve,bt.timestamps);
@@ -1129,7 +1178,7 @@ export default function App() {
     if(!histData||!histTs) return;
     setOptRunning(true); setOptResult(null);
     await new Promise(r=>setTimeout(r,50));
-    const qqqCloses=histData.get('__QQQ__');
+    const qqqCloses=histData.get('__QQQ__').closes;
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
     const combos=runAllCombos(stockData,histTs,qqqCloses);
     setOptResult(combos); setOptRunning(false);
@@ -1140,7 +1189,7 @@ export default function App() {
     if(!histData||!histTs) return;
     setWfoRunning(true); setWfoResult(null);
     await new Promise(r=>setTimeout(r,50));
-    const qqqCloses=histData.get('__QQQ__');
+    const qqqCloses=histData.get('__QQQ__').closes;
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
     const result=runWFO(stockData,histTs,qqqCloses,wfoOptMetric);
     setWfoResult(result); setWfoRunning(false);

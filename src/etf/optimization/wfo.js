@@ -47,7 +47,7 @@ const OOS_DAYS = 252; // 1年
  *   optMetric: string
  * }}
  */
-export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sharpe', onProgress = null) {
+export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sharpe', onProgress = null, opens = null) {
   const N = timestamps.length;
 
   // 计算有多少个有效窗口
@@ -78,7 +78,8 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
     const isResults = await runGridSearch(
       closes, timestamps, vix, qqqVol20,
       isStart, isEnd,
-      null // IS 期不需要进度回调（避免 UI 混乱）
+      null, // IS 期不需要进度回调（避免 UI 混乱）
+      opens
     );
 
     if (isResults.length === 0) continue;
@@ -92,11 +93,11 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
     let oosBt;
     try {
       if (bestParams.strategy === 'momentum') {
-        oosBt = backtestMomentum(closes, timestamps, bestParams, oosStart, oosEnd);
+        oosBt = backtestMomentum(closes, timestamps, bestParams, oosStart, oosEnd, opens);
       } else if (bestParams.strategy === 'dualMomentum') {
-        oosBt = backtestDualMomentum(closes, timestamps, bestParams, oosStart, oosEnd);
+        oosBt = backtestDualMomentum(closes, timestamps, bestParams, oosStart, oosEnd, opens);
       } else {
-        oosBt = backtestVolControl(closes, timestamps, vix, qqqVol20, bestParams, oosStart, oosEnd);
+        oosBt = backtestVolControl(closes, timestamps, vix, qqqVol20, bestParams, oosStart, oosEnd, opens);
       }
     } catch (e) {
       console.warn('WFO OOS backtest failed:', e);

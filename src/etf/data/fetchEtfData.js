@@ -45,12 +45,17 @@ async function fetchSingleEtf(symbol, abortSignal) {
 
       const tss = result.timestamp;
       const adj = result.indicators?.adjclose?.[0]?.adjclose;
+      const q   = result.indicators?.quote?.[0]; // 原始 OHLCV（用于计算复权开盘价）
       if (!tss || !adj || adj.length < 50) return null;
 
       const rows = [];
       for (let i = 0; i < tss.length; i++) {
         if (adj[i] != null && adj[i] > 0) {
-          rows.push({ c: adj[i], ts: tss[i] });
+          const rawClose = q?.close?.[i];
+          const rawOpen  = q?.open?.[i];
+          const scale    = rawClose > 0 ? adj[i] / rawClose : 1;
+          const adjOpen  = rawOpen != null ? rawOpen * scale : adj[i]; // 无 open 时退回 adjClose
+          rows.push({ c: adj[i], o: adjOpen, ts: tss[i] });
         }
       }
       return rows.length >= 50 ? rows : null;
@@ -75,39 +80,44 @@ function alignToBase(rawData, baseSymbol = 'QQQ') {
 
   const timestamps = baseRows.map(r => r.ts);
   const closes = {};
+  const opens  = {};
 
   // QQQ 本身直接映射
   closes[baseSymbol] = baseRows.map(r => r.c);
+  opens[baseSymbol]  = baseRows.map(r => r.o ?? r.c); // 无 open 时退回 close
 
   // 其他标的：按时间戳匹配，缺失时前向填充
   for (const [sym, rows] of Object.entries(rawData)) {
     if (sym === baseSymbol || !rows) continue;
 
-    // 建立时间戳 → 价格的 Map
-    const priceMap = new Map(rows.map(r => [r.ts, r.c]));
+    // 建立时间戳 → { close, open } 的 Map
+    const priceMap = new Map(rows.map(r => [r.ts, { c: r.c, o: r.o ?? r.c }]));
 
-    const aligned = [];
-    let lastPrice = null;
+    const alignedC = [], alignedO = [];
+    let lastC = null, lastO = null;
 
     for (const ts of timestamps) {
       // 尝试精确匹配（容忍 ±3600 秒的时区偏差）
-      let price = priceMap.get(ts)
+      let entry = priceMap.get(ts)
         ?? priceMap.get(ts + 3600)
         ?? priceMap.get(ts - 3600)
         ?? priceMap.get(ts + 86400)
         ?? priceMap.get(ts - 86400)
         ?? null;
 
-      if (price != null && price > 0) {
-        lastPrice = price;
+      if (entry != null && entry.c > 0) {
+        lastC = entry.c;
+        lastO = entry.o ?? entry.c;
       }
-      aligned.push(lastPrice); // 前向填充
+      alignedC.push(lastC); // 前向填充 close
+      alignedO.push(lastO); // 前向填充 open
     }
 
-    closes[sym] = aligned;
+    closes[sym] = alignedC;
+    opens[sym]  = alignedO;
   }
 
-  return { timestamps, closes };
+  return { timestamps, closes, opens };
 }
 
 /**
@@ -165,7 +175,7 @@ export async function fetchEtfData(abortSignal, onProgress = null) {
   const aligned = alignToBase(rawData, 'QQQ');
   if (!aligned) throw new Error('时间戳对齐失败');
 
-  const { timestamps, closes } = aligned;
+  const { timestamps, closes, opens } = aligned;
 
   // ── 对齐 VIX ──
   let vix = new Array(timestamps.length).fill(null);
@@ -190,6 +200,7 @@ export async function fetchEtfData(abortSignal, onProgress = null) {
   return {
     timestamps,
     closes,
+    opens,  // 复权开盘价（供 T+1 开盘执行回测使用）
     vix,
     qqqVol20,
     symbols: successSymbols.filter(s => s !== '^VIX'),

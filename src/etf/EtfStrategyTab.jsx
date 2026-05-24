@@ -416,7 +416,7 @@ function MomentumPanel({ etfData, T, pendingOverride }) {
     setRunning(true);
     setTimeout(() => {
       try {
-        const bt = backtestMomentum(etfData.closes, etfData.timestamps, p);
+        const bt = backtestMomentum(etfData.closes, etfData.timestamps, p, 0, null, etfData.opens);
         const m = calcMetrics(bt.equityCurve, bt.timestamps);
         const startIdx = etfData.timestamps.indexOf(bt.timestamps[0]);
         const endIdx = startIdx + bt.timestamps.length;
@@ -517,7 +517,7 @@ function DualMomentumPanel({ etfData, T, pendingOverride }) {
     setRunning(true);
     setTimeout(() => {
       try {
-        const bt = backtestDualMomentum(etfData.closes, etfData.timestamps, p);
+        const bt = backtestDualMomentum(etfData.closes, etfData.timestamps, p, 0, null, etfData.opens);
         const m = calcMetrics(bt.equityCurve, bt.timestamps);
         const startIdx = etfData.timestamps.indexOf(bt.timestamps[0]);
         const endIdx = startIdx + bt.timestamps.length;
@@ -617,7 +617,7 @@ function VolControlPanel({ etfData, T, pendingOverride }) {
     setTimeout(() => {
       try {
         const bt = backtestVolControl(
-          etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20, p
+          etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20, p, 0, null, etfData.opens
         );
         const m = calcMetrics(bt.equityCurve, bt.timestamps);
         const startIdx = etfData.timestamps.indexOf(bt.timestamps[0]);
@@ -760,7 +760,8 @@ function OptimizePanel({ etfData, T, darkMode, onApply }) {
       const res = await runGridSearch(
         etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
         0, null,
-        (done, total) => setProgress({ done, total })
+        (done, total) => setProgress({ done, total }),
+        etfData.opens
       );
       setResults(res);
       setBest(extractBest(res));
@@ -917,7 +918,8 @@ function WfoPanel({ etfData, T }) {
       const res = await runWFO(
         etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
         optMetric,
-        (done, total, ph) => setPhase(`窗口 ${done + 1}/${total} · ${ph === 'is' ? 'IS优化' : 'OOS验证'}`)
+        (done, total, ph) => setPhase(`窗口 ${done + 1}/${total} · ${ph === 'is' ? 'IS优化' : 'OOS验证'}`),
+        etfData.opens
       );
       setWfoResult(res);
     } catch (e) {

@@ -69,7 +69,7 @@ export function getVolParams() {
 export async function runGridSearch(
   closes, timestamps, vix, qqqVol20,
   startIdx = 0, endIdx = null,
-  onProgress = null
+  onProgress = null, opens = null
 ) {
   const allParams = [
     ...getMomentumParams(),
@@ -92,11 +92,11 @@ export async function runGridSearch(
     try {
       let bt;
       if (p.strategy === 'momentum') {
-        bt = backtestMomentum(closes, timestamps, p, startIdx, endIdx);
+        bt = backtestMomentum(closes, timestamps, p, startIdx, endIdx, opens);
       } else if (p.strategy === 'dualMomentum') {
-        bt = backtestDualMomentum(closes, timestamps, p, startIdx, endIdx);
+        bt = backtestDualMomentum(closes, timestamps, p, startIdx, endIdx, opens);
       } else {
-        bt = backtestVolControl(closes, timestamps, vix, qqqVol20, p, startIdx, endIdx);
+        bt = backtestVolControl(closes, timestamps, vix, qqqVol20, p, startIdx, endIdx, opens);
       }
 
       if (!bt || bt.equityCurve.length < 50) continue;

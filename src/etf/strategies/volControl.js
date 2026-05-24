@@ -53,7 +53,7 @@ export function getVolControlParams() {
  * @param {number}   startIdx
  * @param {number}   endIdx
  */
-export function backtestVolControl(closes, timestamps, vix, qqqVol20, params, startIdx = 0, endIdx = null) {
+export function backtestVolControl(closes, timestamps, vix, qqqVol20, params, startIdx = 0, endIdx = null, opens = null) {
   const {
     volSource      = 'REALIZED',
     lowThreshold   = 20,
@@ -73,9 +73,10 @@ export function backtestVolControl(closes, timestamps, vix, qqqVol20, params, st
 
   let equity = 1.0;
   let lastRegime = null; // 记录上一个 regime，用于换仓日志
+  let prevWeights = {}; // 上一天的持仓权重（用于隔夜收益计算）
 
   for (let i = backtestStart; i < N; i++) {
-    // ── 用 i-1 的波动率决定 i 的持仓 ──
+    // ── 用 i-1 的波动率决定 i 的持仓（T-1 信号，T 开盘执行）──
     const sigIdx = i - 1;
     let vol = null;
 
@@ -87,7 +88,7 @@ export function backtestVolControl(closes, timestamps, vix, qqqVol20, params, st
 
     let regime; // 'full' | 'half' | 'defensive'
     if (vol == null) {
-      regime = 'full'; // 无数据时默认满仓 QQQ
+      regime = 'full';
     } else if (vol < lowThreshold) {
       regime = 'full';
     } else if (vol <= highThreshold) {
@@ -97,9 +98,10 @@ export function backtestVolControl(closes, timestamps, vix, qqqVol20, params, st
     }
 
     const weights = regimeToWeights(regime, defensiveAsset, closes);
+    const regimeChanged = regime !== lastRegime;
 
     // 记录换手日志（regime 变化时）
-    if (regime !== lastRegime && lastRegime !== null) {
+    if (regimeChanged && lastRegime !== null) {
       tradeLog.push({
         date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
         ts: timestamps[i],
@@ -111,19 +113,44 @@ export function backtestVolControl(closes, timestamps, vix, qqqVol20, params, st
         equityBefore: equity,
       });
     }
-    lastRegime = regime;
 
     // ── 计算当日收益 ──
     if (i > backtestStart) {
-      let portReturn = 0;
-      for (const [sym, w] of Object.entries(weights)) {
-        if (sym === 'CASH') continue;
-        const prev = closes[sym]?.[i - 1];
-        const curr = closes[sym]?.[i];
-        if (prev && curr && prev > 0) portReturn += w * (curr / prev - 1);
+      if (regimeChanged && opens) {
+        // Regime 变化（调仓日）：2步执行
+        // Step 1: 旧持仓 close[i-1] → open[i] 隔夜收益
+        let portReturn = 0;
+        for (const [sym, w] of Object.entries(prevWeights)) {
+          if (sym === 'CASH') continue;
+          const prevClose = closes[sym]?.[i - 1];
+          const currOpen  = opens[sym]?.[i] ?? closes[sym]?.[i];
+          if (prevClose && currOpen && prevClose > 0) portReturn += w * (currOpen / prevClose - 1);
+        }
+        equity *= (1 + portReturn);
+        // Step 2: 新持仓 open[i] → close[i] 日内收益
+        portReturn = 0;
+        for (const [sym, w] of Object.entries(weights)) {
+          if (sym === 'CASH') continue;
+          const currOpen  = opens[sym]?.[i] ?? closes[sym]?.[i - 1];
+          const currClose = closes[sym]?.[i];
+          if (currOpen && currClose && currOpen > 0) portReturn += w * (currClose / currOpen - 1);
+        }
+        equity *= (1 + portReturn);
+      } else {
+        // Regime 不变（或无 open 数据）：close[i-1] → close[i]
+        let portReturn = 0;
+        for (const [sym, w] of Object.entries(weights)) {
+          if (sym === 'CASH') continue;
+          const prev = closes[sym]?.[i - 1];
+          const curr = closes[sym]?.[i];
+          if (prev && curr && prev > 0) portReturn += w * (curr / prev - 1);
+        }
+        equity *= (1 + portReturn);
       }
-      equity *= (1 + portReturn);
     }
+
+    prevWeights = weights;
+    lastRegime = regime;
 
     equityCurve.push(equity);
     ts.push(timestamps[i]);

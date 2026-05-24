@@ -23,60 +23,74 @@ export const MOMENTUM_PARAM_GRID = {
   defensiveAsset:  ['SHY', 'GLD', 'CASH'],
 };
 
-export function backtestMomentum(closes, timestamps, params, startIdx = 0, endIdx = null) {
+export function backtestMomentum(closes, timestamps, params, startIdx = 0, endIdx = null, opens = null) {
   const { lookback = 63, topN = 1, defensiveAsset = 'SHY' } = params;
   const N = endIdx ?? timestamps.length;
   const REBAL_FREQ = 21; // 每月调仓
 
-  // 需要足够的历史数据来计算动能信号
-  // 从 startIdx 开始，但实际回测需要 lookback 天的预热期
   const warmup = lookback + 1;
   const backtestStart = Math.max(startIdx, warmup);
 
   const equityCurve = [];
   const ts = [];
   const tradeLog = [];
-  const positions = []; // 每天持仓快照
+  const positions = [];
 
   let equity = 1.0;
-  // 当前持仓：{ symbol: weight } 例如 { QQQ: 0.5, SPY: 0.5 }
   let currentWeights = {};
-  let nextRebalDay = backtestStart; // 下一次调仓的执行日
+  let nextRebalDay = backtestStart;
 
   for (let i = backtestStart; i < N; i++) {
-    // ── 调仓逻辑（在 nextRebalDay 执行）──
+    // ── 调仓日（nextRebalDay）：3步执行 ──
     if (i === nextRebalDay) {
-      // 用 i-1 的收盘计算信号（T-1 信号，T 执行）
+
+      // Step 1: 旧持仓从 close[i-1] → open[i] 的隔夜收益
+      if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+        let portReturn = 0;
+        for (const [sym, w] of Object.entries(currentWeights)) {
+          if (sym === 'CASH') continue;
+          const prevClose = closes[sym]?.[i - 1];
+          const currOpen  = opens?.[sym]?.[i] ?? closes[sym]?.[i];
+          if (prevClose && currOpen && prevClose > 0) portReturn += w * (currOpen / prevClose - 1);
+        }
+        equity *= (1 + portReturn);
+      }
+
+      // Step 2: T-1 收盘信号 → 更新持仓
       const sigIdx = i - 1;
       const newWeights = calcMomentumWeights(closes, sigIdx, lookback, topN, defensiveAsset);
-
-      // 记录换仓日志
       const prevSyms = Object.keys(currentWeights).sort().join(',');
       const newSyms  = Object.keys(newWeights).sort().join(',');
       if (prevSyms !== newSyms || i === backtestStart) {
         tradeLog.push({
           date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
-          ts: timestamps[i],
-          action: 'REBAL',
-          from: currentWeights,
-          to: newWeights,
-          equityBefore: equity,
+          ts: timestamps[i], action: 'REBAL',
+          from: currentWeights, to: newWeights, equityBefore: equity,
         });
       }
       currentWeights = newWeights;
       nextRebalDay = i + REBAL_FREQ;
-    }
 
-    // ── 计算当日组合收益 ──
-    if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+      // Step 3: 新持仓从 open[i] → close[i] 的日内收益
+      if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+        let portReturn = 0;
+        for (const [sym, w] of Object.entries(currentWeights)) {
+          if (sym === 'CASH') continue;
+          const currOpen  = opens?.[sym]?.[i] ?? closes[sym]?.[i - 1];
+          const currClose = closes[sym]?.[i];
+          if (currOpen && currClose && currOpen > 0) portReturn += w * (currClose / currOpen - 1);
+        }
+        equity *= (1 + portReturn);
+      }
+
+    } else if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+      // ── 非调仓日：close[i-1] → close[i] 收益 ──
       let portReturn = 0;
       for (const [sym, w] of Object.entries(currentWeights)) {
-        if (sym === 'CASH') continue; // 现金：0% 收益
+        if (sym === 'CASH') continue;
         const prevClose = closes[sym]?.[i - 1];
         const currClose = closes[sym]?.[i];
-        if (prevClose && currClose && prevClose > 0) {
-          portReturn += w * (currClose / prevClose - 1);
-        }
+        if (prevClose && currClose && prevClose > 0) portReturn += w * (currClose / prevClose - 1);
       }
       equity *= (1 + portReturn);
     }

@@ -25,7 +25,7 @@ export const DUAL_MOMENTUM_PARAM_GRID = {
  * @param {number}   startIdx
  * @param {number}   endIdx
  */
-export function backtestDualMomentum(closes, timestamps, params, startIdx = 0, endIdx = null) {
+export function backtestDualMomentum(closes, timestamps, params, startIdx = 0, endIdx = null, opens = null) {
   const { lookback = 126, maFilter = 200, defensiveAsset = 'SHY' } = params;
   const N = endIdx ?? timestamps.length;
   const REBAL_FREQ = 21;
@@ -43,27 +43,50 @@ export function backtestDualMomentum(closes, timestamps, params, startIdx = 0, e
   let nextRebalDay = backtestStart;
 
   for (let i = backtestStart; i < N; i++) {
+    // ── 调仓日：3步执行 ──
     if (i === nextRebalDay) {
+
+      // Step 1: 旧持仓从 close[i-1] → open[i] 的隔夜收益
+      if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+        let portReturn = 0;
+        for (const [sym, w] of Object.entries(currentWeights)) {
+          if (sym === 'CASH') continue;
+          const prevClose = closes[sym]?.[i - 1];
+          const currOpen  = opens?.[sym]?.[i] ?? closes[sym]?.[i];
+          if (prevClose && currOpen && prevClose > 0) portReturn += w * (currOpen / prevClose - 1);
+        }
+        equity *= (1 + portReturn);
+      }
+
+      // Step 2: T-1 收盘信号 → 更新持仓
       const sigIdx = i - 1;
       const newWeights = calcDualMomentumWeights(closes, sigIdx, lookback, maFilter, defensiveAsset);
-
       const prevSyms = Object.keys(currentWeights).sort().join(',');
       const newSyms  = Object.keys(newWeights).sort().join(',');
       if (prevSyms !== newSyms || i === backtestStart) {
         tradeLog.push({
           date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
-          ts: timestamps[i],
-          action: 'REBAL',
-          from: currentWeights,
-          to: newWeights,
-          equityBefore: equity,
+          ts: timestamps[i], action: 'REBAL',
+          from: currentWeights, to: newWeights, equityBefore: equity,
         });
       }
       currentWeights = newWeights;
       nextRebalDay = i + REBAL_FREQ;
-    }
 
-    if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+      // Step 3: 新持仓从 open[i] → close[i] 的日内收益
+      if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+        let portReturn = 0;
+        for (const [sym, w] of Object.entries(currentWeights)) {
+          if (sym === 'CASH') continue;
+          const currOpen  = opens?.[sym]?.[i] ?? closes[sym]?.[i - 1];
+          const currClose = closes[sym]?.[i];
+          if (currOpen && currClose && currOpen > 0) portReturn += w * (currClose / currOpen - 1);
+        }
+        equity *= (1 + portReturn);
+      }
+
+    } else if (i > backtestStart && Object.keys(currentWeights).length > 0) {
+      // ── 非调仓日：close[i-1] → close[i] 收益 ──
       let portReturn = 0;
       for (const [sym, w] of Object.entries(currentWeights)) {
         if (sym === 'CASH') continue;
