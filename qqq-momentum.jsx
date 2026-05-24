@@ -1666,7 +1666,7 @@ export default function App() {
 
                   <button disabled={wfoRunning} onClick={handleRunWFO} style={{padding:"6px 20px",borderRadius:6,cursor:wfoRunning?"not-allowed":"pointer",
                     fontFamily:"inherit",fontSize:12,background:darkMode?"#220044":"#5522aa",
-                    border:"1px solid #9966ee",color:"#cc99ff",opacity:wfoRunning?0.6:1,marginBottom:16}}>
+                    border:"1px solid #9966ee",color:darkMode?"#cc99ff":"#ffffff",opacity:wfoRunning?0.6:1,marginBottom:16}}>
                     {wfoRunning?"⏳ 运行中（448种×窗口数）…":"▶ 运行 Walk Forward Optimization"}
                   </button>
 
