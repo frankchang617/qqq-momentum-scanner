@@ -11,6 +11,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { backtestQqqRotation, buildQqqBenchmark, paramLabelQqq } from './strategies/qqqRotation.js';
 import { runQqqGridSearch } from './optimization/qqqGridSearch.js';
+import { runQqqWFO } from './optimization/qqqWfo.js';
 import { calcMetrics } from '../etf/strategies/metrics.js';
 
 // ─── 迷你折线图（SVG）────────────────────────────────────────────────────────
@@ -113,6 +114,13 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   const [gsProgress, setGsProgress] = useState({ done: 0, total: 144 });
   const [investAmount, setInvestAmount] = useState('10000');
 
+  // ── WFO ──
+  const [wfoResult,    setWfoResult]    = useState(null);
+  const [wfoRunning,   setWfoRunning]   = useState(false);
+  const [wfoOptMetric, setWfoOptMetric] = useState('sharpe');
+  const [showWfo,      setShowWfo]      = useState(false);
+  const [wfoPhase,     setWfoPhase]     = useState('');
+
   // ── 数据未加载 ──
   if (!histData || !histTs || histTs.length === 0) {
     return (
@@ -163,6 +171,25 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     } catch (e) { console.error('QQQ grid search error:', e); }
     setGsRunning(false);
   }, [histData, histTs]);
+
+  // ── 运行 WFO ──
+  const handleRunWFO = useCallback(async () => {
+    setWfoRunning(true);
+    setWfoResult(null);
+    setWfoPhase('IS Grid Search 运行中…');
+    try {
+      const res = await runQqqWFO(
+        histData, histTs, wfoOptMetric,
+        (phase, done, total) => {
+          if (phase === 'is') setWfoPhase(`IS Grid Search ${done}/${total}…`);
+          else                setWfoPhase('OOS 验证中…');
+        }
+      );
+      setWfoResult(res);
+    } catch (e) { console.error('QQQ WFO error:', e); }
+    setWfoRunning(false);
+    setWfoPhase('');
+  }, [histData, histTs, wfoOptMetric]);
 
   // ── 当前操作信号（基于手动回测参数）──
   const signal = useMemo(() => {
@@ -523,6 +550,241 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
             <div style={{ fontSize: 10, color: T.textMuted, marginTop: 6 }}>
               点击任意行可将该参数加载到 Step 1 手动回测
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════ STEP 3：Walk Forward Optimization ═══════ */}
+      <div style={{ marginBottom: 20 }}>
+        {/* 折叠按钮 */}
+        <button
+          onClick={() => setShowWfo(v => !v)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', width: '100%', textAlign: 'left',
+            background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: showWfo ? '8px 8px 0 0' : 8,
+            cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, color: T.textSub,
+          }}
+        >
+          <span style={{ color: '#aa66ff', fontWeight: 700 }}>{showWfo ? '▼' : '▶'}</span>
+          <span style={{ background: '#5522aa', color: '#ddb8ff', fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4, letterSpacing: 1 }}>MODE B</span>
+          Walk Forward Optimization（单窗口：前 70% IS 训练 → 后 30% OOS 验证）
+          {wfoResult && <span style={{ marginLeft: 'auto', color: '#00aa44', fontSize: 10 }}>✓ 已完成</span>}
+        </button>
+
+        {showWfo && (
+          <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderTop: 'none', borderRadius: '0 0 8px 8px' }}>
+
+            {/* 说明 */}
+            <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 10, lineHeight: 1.7 }}>
+              <b style={{ color: T.textSub }}>单窗口 WFO 逻辑</b>（推荐先加载 10 年数据）：
+              ① 前 70% 数据做 in-sample，跑 Grid Search（144 种组合）→
+              ② 按优化指标选最佳参数 →
+              ③ <b style={{ color: '#88bbff' }}>固定该参数</b>跑后 30% out-of-sample →
+              ④ 记录 OOS 绩效（不重新选参，不事后调整）。
+              <span style={{ color: '#88bbff', marginLeft: 6 }}>
+                🔒 <b>IS / OOS 参数严格一致</b>：OOS 使用的参数 = IS Grid Search 选出的最优参数。
+              </span>
+            </div>
+
+            {/* IS 优化指标选择 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: T.textSub, whiteSpace: 'nowrap' }}>in-sample 优化指标：</span>
+              {[{ v: 'sharpe', l: 'Sharpe（推荐）' }, { v: 'cagr', l: 'CAGR' }, { v: 'calmar', l: 'Calmar (CAGR/MDD)' }].map(({ v, l }) => (
+                <button key={v} onClick={() => setWfoOptMetric(v)} style={{
+                  padding: '4px 10px', fontSize: 10, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                  background: wfoOptMetric === v ? (darkMode ? '#004488' : '#0055cc') : 'transparent',
+                  border: `1px solid ${wfoOptMetric === v ? '#4488ee' : T.border}`,
+                  color: wfoOptMetric === v ? '#fff' : T.textSub,
+                  fontWeight: wfoOptMetric === v ? 600 : 400,
+                }}>{l}</button>
+              ))}
+            </div>
+
+            {/* 运行按钮 */}
+            <button
+              disabled={wfoRunning}
+              onClick={handleRunWFO}
+              style={{
+                padding: '6px 20px', borderRadius: 6, cursor: wfoRunning ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                background: darkMode ? '#220044' : '#5522aa',
+                border: '1px solid #9966ee', color: darkMode ? '#cc99ff' : '#fff',
+                opacity: wfoRunning ? 0.6 : 1, marginBottom: 16,
+              }}
+            >
+              {wfoRunning ? `⏳ ${wfoPhase || '运行中（144种参数组合）…'}` : '▶ 运行 Walk Forward Optimization'}
+            </button>
+
+            {/* WFO 结果 */}
+            {wfoResult && (() => {
+              const cm = wfoResult.combinedMetrics;
+              const qm = wfoResult.qqqCombinedMetrics;
+              const optLabel = { sharpe: 'Sharpe', cagr: 'CAGR', calmar: 'Calmar' }[wfoResult.optMetric] || wfoResult.optMetric;
+
+              const lbLabel  = p => ({ 21: '1M', 63: '3M', 126: '6M' }[p.lookback] ?? `${p.lookback}D`);
+              const rfLabel  = p => ({ 5: '每周', 10: '每两周', 21: '每月' }[p.rebalFreq] ?? `${p.rebalFreq}D`);
+              const mfLabel  = p => p.marketFilter ? `SMA200→${p.defensiveAsset}` : '无过滤';
+              const fmtDate  = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '—';
+              const fmtPct   = (v, d = 1) => v == null ? '—' : `${(v * 100).toFixed(d)}%`;
+
+              return (
+                <>
+                  {/* 运行摘要 */}
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, padding: '10px 14px', background: T.pageBg, border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 10 }}>
+                    <span style={{ color: T.textSub }}>模式：<b style={{ color: '#cc99ff' }}>单窗口 70% IS / 30% OOS</b></span>
+                    <span style={{ color: T.textSub }}>IS 天数：<b style={{ color: T.textBright }}>{wfoResult.inDays}</b></span>
+                    <span style={{ color: T.textSub }}>OOS 天数：<b style={{ color: T.textBright }}>{wfoResult.outDays}</b></span>
+                    <span style={{ color: T.textSub }}>Grid Search：<b style={{ color: T.textBright }}>{wfoResult.totalCombos}</b> 种组合</span>
+                    <span style={{ color: T.textSub }}>IS 优化指标：<b style={{ color: '#cc99ff' }}>{optLabel}</b></span>
+                  </div>
+
+                  {/* 参数一致性说明 */}
+                  <div style={{ padding: '8px 12px', marginBottom: 10, background: '#4488ee14', border: '1px solid #4488ee40', borderRadius: 6, fontSize: 10, color: T.textSub, lineHeight: 1.6 }}>
+                    ⚡ <b style={{ color: '#88bbff' }}>参数一致性保证</b>：OOS 期间严格使用 IS 期选出的最佳参数，
+                    <b style={{ color: T.textBright }}>不重新优化、不事后调参</b>。
+                    下表参数列（紫色）同时标注 IS 选参结果 = OOS 实际使用参数。
+                  </div>
+
+                  {/* 窗口明细表 */}
+                  <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 10, minWidth: 1000 }}>
+                      <thead>
+                        <tr>
+                          {[
+                            { h: '#',                    group: '' },
+                            { h: 'IS 开始',              group: 'is',    note: 'In-Sample Start' },
+                            { h: 'IS 结束',              group: 'is',    note: 'In-Sample End' },
+                            { h: 'OOS 开始',             group: 'oos',   note: 'Out-of-Sample Start' },
+                            { h: 'OOS 结束',             group: 'oos',   note: 'Out-of-Sample End' },
+                            { h: 'Selected Lookback',    group: 'param', note: 'IS→OOS 参数一致' },
+                            { h: 'Selected TopN',        group: 'param', note: 'IS→OOS 参数一致' },
+                            { h: 'Selected Rebalance',   group: 'param', note: 'IS→OOS 参数一致' },
+                            { h: 'Selected Filter',      group: 'param', note: 'IS→OOS 参数一致' },
+                            { h: `IS ${optLabel} Score`, group: '',      note: 'in-sample 优化得分' },
+                            { h: 'OOS CAGR',             group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS Sharpe',           group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS MDD',              group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS Total Ret',        group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'QQQ CAGR',             group: '',      note: '同期基准' },
+                          ].map(({ h, group, note }) => (
+                            <th key={h} style={{
+                              padding: '6px 10px', textAlign: 'left', fontWeight: 500, fontSize: 9,
+                              background: T.pageBg, boxShadow: `0 1px 0 ${T.border}`, whiteSpace: 'nowrap',
+                              color: group === 'param' ? '#cc99ff' : group === 'oos' ? '#88bbff' : T.textSub,
+                            }}>
+                              {h}
+                              {note && <div style={{ fontSize: 8, color: T.textMuted, fontWeight: 400 }}>{note}</div>}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {wfoResult.windowResults.map((w, i) => {
+                          const bp = w.bestParams;
+                          const isScore = wfoResult.optMetric === 'cagr' ? w.inSampleCAGR : w.inSampleSharpe;
+                          return (
+                            <tr key={i} style={{ background: i % 2 === 0 ? T.cardBg : T.pageBg }}>
+                              <td style={{ padding: '7px 10px', color: T.textMuted, textAlign: 'center', fontWeight: 700 }}>{w.winIdx}</td>
+                              <td style={{ padding: '7px 10px', color: T.textMuted, whiteSpace: 'nowrap' }}>{fmtDate(w.inTsStart)}</td>
+                              <td style={{ padding: '7px 10px', color: T.textMuted, whiteSpace: 'nowrap' }}>{fmtDate(w.inTsEnd)}</td>
+                              <td style={{ padding: '7px 10px', color: T.textBright, whiteSpace: 'nowrap', fontWeight: 600 }}>{fmtDate(w.outTsStart)}</td>
+                              <td style={{ padding: '7px 10px', color: T.textBright, whiteSpace: 'nowrap', fontWeight: 600 }}>{fmtDate(w.outTsEnd)}</td>
+                              <td style={{ padding: '7px 10px', color: '#cc99ff', fontWeight: 700 }}>{lbLabel(bp)}</td>
+                              <td style={{ padding: '7px 10px', color: '#cc99ff', fontWeight: 700 }}>Top {bp.topN}</td>
+                              <td style={{ padding: '7px 10px', color: '#cc99ff' }}>{rfLabel(bp)}</td>
+                              <td style={{ padding: '7px 10px', color: '#cc99ff', whiteSpace: 'nowrap' }}>{mfLabel(bp)}</td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: T.textSub }}>{isScore != null ? isScore.toFixed(2) : '—'}</td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 700, color: (w.outMetrics?.cagr ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>
+                                {w.outMetrics ? fmtPct(w.outMetrics.cagr) : '—'}
+                              </td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: T.textBright }}>
+                                {w.outMetrics ? w.outMetrics.sharpe.toFixed(2) : '—'}
+                              </td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#ee3344' }}>
+                                {w.outMetrics ? fmtPct(w.outMetrics.mdd) : '—'}
+                              </td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: (w.outMetrics?.totalReturn ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>
+                                {w.outMetrics ? fmtPct(w.outMetrics.totalReturn) : '—'}
+                              </td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: (w.qqqOutMetrics?.cagr ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>
+                                {w.qqqOutMetrics ? fmtPct(w.qqqOutMetrics.cagr) : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* OOS 总绩效指标 */}
+                  <div style={{ fontSize: 10, color: T.textSub, letterSpacing: 1, marginBottom: 8 }}>
+                    Mode B · WFO OOS 绩效（out-of-sample，无事后挑选）
+                  </div>
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+                    {cm && [
+                      { label: 'OOS CAGR',   value: fmtPct(cm.cagr),         sub: qm ? `QQQ ${fmtPct(qm.cagr)}` : null,   color: cm.cagr >= 0 ? '#4fc86e' : '#e05050' },
+                      { label: 'OOS Sharpe', value: cm.sharpe.toFixed(2),     sub: qm ? `QQQ ${qm.sharpe.toFixed(2)}` : null, color: cm.sharpe > 1 ? '#4fc86e' : cm.sharpe > 0.5 ? '#f0c040' : '#e05050' },
+                      { label: 'OOS MDD',    value: fmtPct(cm.mdd),           sub: qm ? `QQQ ${fmtPct(qm.mdd)}` : null,   color: cm.mdd > -0.2 ? '#4fc86e' : cm.mdd > -0.35 ? '#f0c040' : '#e05050' },
+                      { label: 'OOS 总收益', value: fmtPct(cm.totalReturn),   sub: qm ? `QQQ ${fmtPct(qm.totalReturn)}` : null, color: cm.totalReturn >= 0 ? '#4fc86e' : '#e05050' },
+                    ].map((m, i) => <MetricCard key={i} label={m.label} value={m.value} sub={m.sub} color={m.color} T={T} />)}
+                  </div>
+
+                  {/* OOS 净值曲线 */}
+                  {wfoResult.allOutEquity.length > 10 && (
+                    <div style={{ background: T.pageBg, border: `1px solid ${T.border}`, borderRadius: 8, padding: '14px 16px', overflowX: 'auto', marginBottom: 16 }}>
+                      <div style={{ fontSize: 10, color: T.textSub, marginBottom: 8 }}>
+                        WFO OOS 净值曲线（策略 实线 vs QQQ 虚线）
+                      </div>
+                      <MiniLineChart
+                        T={T}
+                        series={[
+                          { data: wfoResult.allOutEquity, color: '#4fc86e', label: 'OOS 策略' },
+                          ...(wfoResult.qqqWfoEq?.length > 1 ? [{ data: wfoResult.qqqWfoEq, color: '#5588cc', label: 'QQQ 基准' }] : []),
+                        ]}
+                        width={560} height={130}
+                      />
+                    </div>
+                  )}
+
+                  {/* Mode A vs Mode B 对比表 */}
+                  {btResult?.metrics && cm && (() => {
+                    const sa = btResult.metrics;
+                    const rows = [
+                      { mode: 'Mode A · Fixed Param Backtest（全量数据，含 in-sample）',        cagr: sa.cagr,  sharpe: sa.sharpe,  mdd: sa.mdd,  total: sa.totalReturn },
+                      { mode: 'Mode B · WFO OOS（纯 out-of-sample，无事后挑参）',               cagr: cm.cagr,  sharpe: cm.sharpe,  mdd: cm.mdd,  total: cm.totalReturn },
+                      { mode: 'QQQ Buy & Hold（同 OOS 期间基准）',                             cagr: qm?.cagr, sharpe: qm?.sharpe, mdd: qm?.mdd, total: qm?.totalReturn },
+                    ];
+                    return (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: 10, color: T.textSub, letterSpacing: 1, marginBottom: 8 }}>Mode A vs Mode B 最终对比</div>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 10, minWidth: 580 }}>
+                            <thead>
+                              <tr>
+                                {['模式', 'CAGR', 'Sharpe', 'MDD', '累积收益'].map(h => (
+                                  <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 500, fontSize: 9, background: T.pageBg, boxShadow: `0 1px 0 ${T.border}`, color: T.textSub }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((r, i) => (
+                                <tr key={i} style={{ background: i === 1 ? (darkMode ? '#1a0033' : '#f3eeff') : i === 2 ? (darkMode ? '#111' : '#f5f5f5') : T.cardBg }}>
+                                  <td style={{ padding: '7px 12px', color: i === 1 ? '#cc99ff' : i === 2 ? T.textMuted : T.textSub, fontSize: 10 }}>{r.mode}</td>
+                                  <td style={{ padding: '7px 12px', fontFamily: 'monospace', fontWeight: 700, color: (r.cagr ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>{r.cagr != null ? fmtPct(r.cagr) : '—'}</td>
+                                  <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: T.textBright }}>{r.sharpe != null ? r.sharpe.toFixed(2) : '—'}</td>
+                                  <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#ee3344' }}>{r.mdd != null ? fmtPct(r.mdd) : '—'}</td>
+                                  <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: (r.total ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>{r.total != null ? fmtPct(r.total) : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
