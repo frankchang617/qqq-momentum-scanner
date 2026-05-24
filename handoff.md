@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 6（MOO 开盘执行模型 · 进行中）
+更新时间：2026-05-24 Session 6（MOO 开盘执行模型 ✅ 全部完成）
 
 ## 项目结构
 
@@ -15,13 +15,13 @@ src/etf/
     metrics.js                # 回测指标计算
   optimization/
     gridSearch.js             # 参数网格搜索（已加 opens）
-    wfo.js                    # Walk Forward Optimization（已加 opens ✅）
-  EtfStrategyTab.jsx          # ETF 策略主界面（待改）
+    wfo.js                    # Walk Forward Optimization（已加 opens）
+  EtfStrategyTab.jsx          # ETF 策略主界面
 ```
 
 ---
 
-## ✅ 已完成工作（Session 6）
+## ✅ 已完成工作（Session 6 · commit `56dbb8e`）
 
 ### MOO 执行模型（T 收盘信号 → T+1 开盘执行）
 
@@ -36,96 +36,45 @@ src/etf/
 
 **非调仓日**：close-to-close（不变）
 
-### 已改动文件
+### 改动文件汇总
 
-| 文件 | 状态 |
-|------|------|
-| `qqq-momentum.jsx` | ✅ fetchCandlesExtended + loadHistData + portfolioBacktest |
-| `src/etf/data/fetchEtfData.js` | ✅ fetchSingleEtf + alignToBase，返回 opens |
-| `src/etf/strategies/momentum.js` | ✅ opens=null 参数，3步调仓逻辑 |
-| `src/etf/strategies/dualMomentum.js` | ✅ opens=null 参数，3步调仓逻辑 |
-| `src/etf/strategies/volControl.js` | ✅ opens=null 参数，prevWeights 追踪，2步换仓 |
-| `src/etf/optimization/gridSearch.js` | ✅ opens=null 参数，传给3个策略 |
-| `src/etf/optimization/wfo.js` | ✅ opens=null 参数，传给 IS gridSearch + OOS 3策略 |
-| `src/etf/EtfStrategyTab.jsx` | ⏳ 待改（5处调用点） |
+| 文件 | 改动内容 |
+|------|---------|
+| `qqq-momentum.jsx` | `fetchCandlesExtended` 返回 adjOpen；`loadHistData` 存 `{closes,opens}`；`portfolioBacktest` 3 步调仓 |
+| `src/etf/data/fetchEtfData.js` | adjOpen 计算，`alignToBase` 返回 `{closes, opens}` dict |
+| `src/etf/strategies/momentum.js` | `opens=null` 参数，调仓日 3 步逻辑 |
+| `src/etf/strategies/dualMomentum.js` | `opens=null` 参数，调仓日 3 步逻辑 |
+| `src/etf/strategies/volControl.js` | `opens=null` 参数，`prevWeights` 追踪，`regimeChanged` 时 2 步换仓 |
+| `src/etf/optimization/gridSearch.js` | `opens=null` 透传给 3 个策略 |
+| `src/etf/optimization/wfo.js` | `opens=null` 传给 IS gridSearch + OOS 3 策略 |
+| `src/etf/EtfStrategyTab.jsx` | 5 处调用点全部追加 `etfData.opens` |
 
 ---
 
-## ⏳ 下一步（立即执行）
+## ✅ 已完成工作（Session 5 · commit `62b953f`）
 
-### EtfStrategyTab.jsx 5 处调用点，均需追加 `etfData.opens`
+### WFO 单窗口重构
 
-1. **Line 419** — `backtestMomentum`
-   ```js
-   // 改前
-   const bt = backtestMomentum(etfData.closes, etfData.timestamps, p);
-   // 改后
-   const bt = backtestMomentum(etfData.closes, etfData.timestamps, p, 0, null, etfData.opens);
-   ```
-
-2. **Line 520** — `backtestDualMomentum`
-   ```js
-   // 改前
-   const bt = backtestDualMomentum(etfData.closes, etfData.timestamps, p);
-   // 改后
-   const bt = backtestDualMomentum(etfData.closes, etfData.timestamps, p, 0, null, etfData.opens);
-   ```
-
-3. **Lines 619-621** — `backtestVolControl`
-   ```js
-   // 改前
-   const bt = backtestVolControl(
-     etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20, p
-   );
-   // 改后
-   const bt = backtestVolControl(
-     etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20, p, 0, null, etfData.opens
-   );
-   ```
-
-4. **Lines 760-764** — `runGridSearch`
-   ```js
-   // 改前
-   const res = await runGridSearch(
-     etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
-     0, null,
-     (done, total) => setProgress({ done, total })
-   );
-   // 改后
-   const res = await runGridSearch(
-     etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
-     0, null,
-     (done, total) => setProgress({ done, total }),
-     etfData.opens
-   );
-   ```
-
-5. **Lines 917-921** — `runWFO`
-   ```js
-   // 改前
-   const res = await runWFO(
-     etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
-     optMetric,
-     (done, total, ph) => setPhase(...)
-   );
-   // 改后
-   const res = await runWFO(
-     etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
-     optMetric,
-     (done, total, ph) => setPhase(...),
-     etfData.opens
-   );
-   ```
-
-### 完成后
-- `npm run build` 验证无编译错误
-- git commit + push
+- **单窗口**：前 70% IS（≈7年）+ 后 30% OOS（≈3年），非滚动
+- **表格列**：IS/OOS 时间段拆成 4 列（IS Start / IS End / OOS Start / OOS End）
+- **参数列**：重命名为「Selected TopN/Lookback/Rebalance/Market Filter」
+- **10年数据**：新增「10年」加载选项，带紫色 "WFO" 标签
+- **参数网格**：448 种组合不变（4×7×4×4）
 
 ---
 
 ## 关键决策记录
 
-- **MOO 方案 A**（真实 adjOpen）优于方案 B（收盘价近似），已确认采用
-- **WFO 单窗口**（前70% IS ≈ 7年，后30% OOS ≈ 3年），非滚动
-- **volControl** 日频调仓特殊处理：追踪 `prevWeights`，仅在 `regimeChanged && opens` 时走2步
-- **histData 向后兼容**：`portfolioBacktest` 检查 `d.closes` 存在与否，兼容旧平铺数组格式
+| 决策 | 内容 |
+|------|------|
+| MOO 方案选择 | 方案 A（真实 adjOpen）优于方案 B（收盘价近似），已采用 |
+| WFO 窗口数 | 单窗口（70/30），非滚动 |
+| volControl 特殊处理 | 日频调仓追踪 `prevWeights`，仅 `regimeChanged && opens` 时走 2 步 |
+| histData 兼容性 | `portfolioBacktest` 检查 `d.closes` 存在与否，兼容旧平铺数组 |
+| opens 参数默认值 | 所有函数 `opens=null`，存量调用不受影响 |
+
+---
+
+## 下一步（待规划）
+
+当前所有功能已全部完成并通过 `npm run build`，可根据需要开展新功能或优化。
