@@ -1405,7 +1405,7 @@ export default function App() {
                 padding:"5px 16px",borderRadius:6,cursor:histLoading?"not-allowed":"pointer",
                 fontFamily:"inherit",fontSize:11,
                 background: histLoading?"transparent":(darkMode?"#004488":"#0055cc"),
-                border:"1px solid #4488ee", color:"#88ccff", opacity:histLoading?0.6:1}}>
+                border:"1px solid #4488ee", color:darkMode?"#88ccff":"#ffffff", opacity:histLoading?0.6:1}}>
                 {histLoading?"加载中…":"加载历史数据"}
               </button>
               {histData&&!histLoading&&(
@@ -1484,7 +1484,7 @@ export default function App() {
 
               <div style={{marginTop:14,display:"flex",alignItems:"center",gap:12}}>
                 <button onClick={()=>runStratBacktest()} style={{padding:"6px 20px",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12,
-                  background:darkMode?"#004488":"#0055cc",border:"1px solid #4488ee",color:"#88ccff"}}>
+                  background:darkMode?"#004488":"#0055cc",border:"1px solid #4488ee",color:darkMode?"#88ccff":"#ffffff"}}>
                   ▶ 运行固定参数回测
                 </button>
                 <span style={{fontSize:10,color:T.textVMuted}}>当前：{fmtParamLabel(stratParams)}</span>
@@ -1580,7 +1580,7 @@ export default function App() {
                   </div>
                   <button disabled={optRunning} onClick={handleRunOptimize} style={{padding:"5px 18px",borderRadius:6,cursor:optRunning?"not-allowed":"pointer",
                     fontFamily:"inherit",fontSize:11,background:darkMode?"#004488":"#0055cc",
-                    border:"1px solid #4488ee",color:"#88ccff",opacity:optRunning?0.6:1,marginBottom:14}}>
+                    border:"1px solid #4488ee",color:darkMode?"#88ccff":"#ffffff",opacity:optRunning?0.6:1,marginBottom:14}}>
                     {optRunning?"⏳ 优化中…":"▶ 开始优化"}
                   </button>
                   {optResult&&(()=>{
