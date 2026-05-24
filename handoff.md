@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24（WFO 逻辑重写 + Mode A/B 双模式 + 参数网格 448 种）
+更新时间：2026-05-24（UI 优化：MDD 红色 + 净值/回撤曲线横轴时间标签）✅ 已完成
 
 ## 项目结构
 
@@ -189,8 +189,8 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 | `portfolioBacktest(histData,commonTs,qqqCloses,params,start,end)` | 组合回测，缓冲换股 + QQQ滤网，无未来数据 |
 | `buildQqqEquity(qqqCloses,startIdx,endIdx)` | 构造 QQQ 买持净值曲线（基准对比） |
 | `calcPortMetrics(equityCurve,timestamps)` | CAGR / Sharpe / MDD / 年度收益 / 月度收益 |
-| `runAllCombos(histData,commonTs,qqqCloses,start,end)` | 遍历 96 种参数组合，返回全量结果 |
-| `runWFO(histData,commonTs,qqqCloses)` | Walk Forward：滚动窗口优化+验证，串接 out-sample |
+| `runAllCombos(histData,commonTs,qqqCloses,start,end)` | 遍历 448 种参数组合（4×7×4×4），返回全量结果 |
+| `runWFO(histData,commonTs,qqqCloses,optMetric)` | Walk Forward：70/30 滚动窗口，in-sample 选参→OOS 验证，串接 out-sample |
 
 ## 部署更新流程
 ```bash
@@ -217,6 +217,16 @@ git add -A && git commit -m "描述" && git push
 - MDD 显示为正数（如 +20.3%）语义错误 → `calcPortMetrics` 改为返回 `-mdd`（负数），所有 MetricCard 的 MDD 改 `higherBetter=true`（越接近0越好），一键优化排序改为降序，CAGR/MDD 比率改用 `Math.abs`
 - 单股回测新增 CAGR/Sharpe/MDD 均基于顺序复利净值曲线（trade by trade），样本量小（3～8次），看方向比看绝对值更有意义
 - WFO 原始错误：`runAllCombos` 仅测 topN=[5,10,20]、rebalanceFreq=['weekly','monthly']、参数仅96种，且窗口设计用固定3y+1y / 60%+20%，与 70/30 原则不符 → 全部重写：Grid Search 扩展到 448种（4×7×4×4），70/30 窗口，marketFilter 替换 qqq200Filter，新增 daily/quarterly 调仓
+
+## Claude Code 开发环境配置
+
+### 全局 Hook（~/.claude/settings.json）
+- **PostToolUse hook**：每完成 10 次工具调用，自动向 Claude 注入 `additionalContext` 提醒写 handoff.md
+  - 计数器存储在 `/tmp/.cc_<session_id>`，按 session 独立计数
+  - 触发条件：`CNT % 10 === 0`，输出 `hookSpecificOutput.additionalContext` JSON
+  - 适用所有项目（全局配置）
+- **Superpowers 插件**：已安装 v5.1.0（claude-plugins-official），含 14 个 skills（并行 agent、TDD、调试等）
+  - 位置：`~/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0/`
 
 ## 函数签名变化（2026-05-24 WFO 重写）
 - `portfolioBacktest(params)` 新增 `marketFilter:'none'|'ma50'|'ma100'|'ma200'` 替代 `qqq200Filter:bool`（向后兼容）；`rebalanceFreq` 新增 `'daily'`/`'quarterly'`

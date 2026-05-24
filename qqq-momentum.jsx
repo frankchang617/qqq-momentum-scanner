@@ -151,25 +151,49 @@ function ScoreBadge({ score }) {
 }
 
 // ── 策略回测图表组件 ──
-function EquityCurveChart({ stratEq, qqqEq, T }) {
-  const W = 700, H = 220;
-  const pad = { l:46, r:12, t:14, b:24 };
+function EquityCurveChart({ stratEq, qqqEq, timestamps, T }) {
+  const W = 700, H = 230;
+  const pad = { l:46, r:12, t:14, b:34 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
   const allV = [...stratEq, ...qqqEq];
   const minV = Math.min(...allV) * 0.98, maxV = Math.max(...allV) * 1.02;
   const rng = maxV - minV;
   const n = stratEq.length;
-  const tx = i => pad.l + (i/(n-1))*iw;
+  const tx = i => pad.l + (i / Math.max(n-1, 1)) * iw;
   const ty = v => pad.t + ih - ((v-minV)/rng)*ih;
   const sp = stratEq.map((v,i) => `${tx(i)},${ty(v)}`).join(" ");
   const qp = qqqEq.map((v,i) => `${tx(i)},${ty(v)}`).join(" ");
   const ticks = [minV, minV+rng*0.25, minV+rng*0.5, minV+rng*0.75, maxV];
+
+  // 横轴时间刻度：每年 1 月对应的数据索引
+  const timeTicks = [];
+  if (timestamps && timestamps.length > 1) {
+    const startYear = new Date(timestamps[0] * 1000).getFullYear();
+    const endYear   = new Date(timestamps[timestamps.length-1] * 1000).getFullYear();
+    for (let yr = startYear; yr <= endYear + 1; yr++) {
+      const targetTs = Date.UTC(yr, 0, 1) / 1000;
+      const idx = timestamps.findIndex(ts => ts >= targetTs);
+      if (idx >= 0 && idx < n) {
+        timeTicks.push({ x: tx(idx), label: String(yr) });
+      }
+    }
+  }
+
   return (
     <svg width={W} height={H} style={{display:"block"}}>
       {ticks.map((v,i) => (
         <Fragment key={i}>
           <line x1={pad.l} y1={ty(v)} x2={pad.l+iw} y2={ty(v)} stroke={T.border} strokeWidth="0.5" strokeDasharray="3,3"/>
           <text x={pad.l-4} y={ty(v)+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>{((v-1)*100).toFixed(0)}%</text>
+        </Fragment>
+      ))}
+      {/* 横轴基线 */}
+      <line x1={pad.l} y1={pad.t+ih} x2={pad.l+iw} y2={pad.t+ih} stroke={T.borderMuted} strokeWidth="0.5"/>
+      {/* 时间刻度 */}
+      {timeTicks.map((tick, i) => (
+        <Fragment key={i}>
+          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textVMuted} strokeWidth="0.5"/>
+          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textVMuted} fontSize={9}>{tick.label}</text>
         </Fragment>
       ))}
       <polyline points={qp} fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeDasharray="5,3" opacity="0.7"/>
@@ -182,16 +206,31 @@ function EquityCurveChart({ stratEq, qqqEq, T }) {
   );
 }
 
-function DrawdownChart({ drawdowns, T }) {
-  const W = 700, H = 120;
-  const pad = { l:46, r:12, t:10, b:24 };
+function DrawdownChart({ drawdowns, timestamps, T }) {
+  const W = 700, H = 130;
+  const pad = { l:46, r:12, t:10, b:34 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
   const minV = Math.min(...drawdowns, -1) * 1.1;
   const n = drawdowns.length;
-  const tx = i => pad.l + (i/(n-1))*iw;
+  const tx = i => pad.l + (i / Math.max(n-1, 1)) * iw;
   const ty = v => pad.t + (1 - v/minV)*ih;
   const pts = drawdowns.map((v,i) => `${tx(i)},${ty(v)}`).join(" ");
   const fill = `${pad.l},${pad.t} ${pts} ${pad.l+iw},${pad.t}`;
+
+  // 横轴时间刻度
+  const timeTicks = [];
+  if (timestamps && timestamps.length > 1) {
+    const startYear = new Date(timestamps[0] * 1000).getFullYear();
+    const endYear   = new Date(timestamps[timestamps.length-1] * 1000).getFullYear();
+    for (let yr = startYear; yr <= endYear + 1; yr++) {
+      const targetTs = Date.UTC(yr, 0, 1) / 1000;
+      const idx = timestamps.findIndex(ts => ts >= targetTs);
+      if (idx >= 0 && idx < n) {
+        timeTicks.push({ x: tx(idx), label: String(yr) });
+      }
+    }
+  }
+
   return (
     <svg width={W} height={H} style={{display:"block"}}>
       <line x1={pad.l} y1={pad.t} x2={pad.l+iw} y2={pad.t} stroke={T.border} strokeWidth="0.5"/>
@@ -199,6 +238,15 @@ function DrawdownChart({ drawdowns, T }) {
       <polyline points={pts} fill="none" stroke="#ee3344" strokeWidth="1.5"/>
       <text x={pad.l-4} y={ty(minV)+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>{minV.toFixed(1)}%</text>
       <text x={pad.l-4} y={pad.t+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>0%</text>
+      {/* 横轴基线 */}
+      <line x1={pad.l} y1={pad.t+ih} x2={pad.l+iw} y2={pad.t+ih} stroke={T.borderMuted} strokeWidth="0.5"/>
+      {/* 时间刻度 */}
+      {timeTicks.map((tick, i) => (
+        <Fragment key={i}>
+          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textVMuted} strokeWidth="0.5"/>
+          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textVMuted} fontSize={9}>{tick.label}</text>
+        </Fragment>
+      ))}
     </svg>
   );
 }
@@ -986,14 +1034,14 @@ export default function App() {
   const histPct=histProg.total?Math.round(histProg.done/histProg.total*100):0;
 
   // ── 指标卡辅助组件（策略回测用）──
-  function MetricCard({ label, strat, qqq, unit="", higherBetter=true, fmtFn=v=>v?.toFixed(2) }) {
+  function MetricCard({ label, strat, qqq, unit="", higherBetter=true, fmtFn=v=>v?.toFixed(2), alwaysRed=false }) {
     const better = strat!=null&&qqq!=null&&(higherBetter ? strat>qqq : strat<qqq);
     const worse  = strat!=null&&qqq!=null&&(higherBetter ? strat<qqq : strat>qqq);
+    const valueColor = alwaysRed ? "#ee3344" : better ? "#00aa44" : worse ? "#ee3344" : T.textBright;
     return (
       <div style={{padding:"10px 14px", background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:8, minWidth:130}}>
         <div style={{fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:4}}>{label}</div>
-        <div style={{fontSize:18, fontWeight:700, fontFamily:"monospace",
-          color: better?"#00aa44":worse?"#ee3344":T.textBright}}>
+        <div style={{fontSize:18, fontWeight:700, fontFamily:"monospace", color: valueColor}}>
           {strat!=null?(strat>=0?"+":"")+fmtFn(strat)+unit:"—"}
         </div>
         <div style={{fontSize:10, color:T.textMuted, marginTop:2}}>
@@ -1451,7 +1499,7 @@ export default function App() {
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:12}}>
                 <MetricCard label="CAGR（年化收益）" strat={stratResult.metrics.cagr} qqq={stratResult.qqqMetrics?.cagr} unit="%" fmtFn={v=>v.toFixed(1)}/>
                 <MetricCard label="Sharpe Ratio" strat={stratResult.metrics.sharpe} qqq={stratResult.qqqMetrics?.sharpe} fmtFn={v=>v.toFixed(2)}/>
-                <MetricCard label="最大回撤 MDD" strat={stratResult.metrics.mdd} qqq={stratResult.qqqMetrics?.mdd} unit="%" higherBetter={true} fmtFn={v=>v.toFixed(1)}/>
+                <MetricCard label="最大回撤 MDD" strat={stratResult.metrics.mdd} qqq={stratResult.qqqMetrics?.mdd} unit="%" higherBetter={true} fmtFn={v=>v.toFixed(1)} alwaysRed={true}/>
                 <MetricCard label="累积收益" strat={stratResult.metrics.total} qqq={stratResult.qqqMetrics?.total} unit="%" fmtFn={v=>v.toFixed(1)}/>
                 <div style={{padding:"10px 14px",background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,minWidth:130}}>
                   <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:4}}>换股次数</div>
@@ -1489,13 +1537,13 @@ export default function App() {
               {/* 净值曲线 */}
               <div style={{background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,padding:"14px 16px",marginBottom:12,overflowX:"auto"}}>
                 <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>净值曲线（策略 vs QQQ）</div>
-                <EquityCurveChart stratEq={stratResult.equityCurve} qqqEq={stratResult.qqqEq} T={T}/>
+                <EquityCurveChart stratEq={stratResult.equityCurve} qqqEq={stratResult.qqqEq} timestamps={stratResult.timestamps} T={T}/>
               </div>
 
               {/* Drawdown */}
               <div style={{background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,padding:"14px 16px",marginBottom:12,overflowX:"auto"}}>
                 <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>回撤曲线</div>
-                <DrawdownChart drawdowns={stratResult.metrics.drawdowns} T={T}/>
+                <DrawdownChart drawdowns={stratResult.metrics.drawdowns} timestamps={stratResult.timestamps} T={T}/>
               </div>
 
               {/* 年度收益 */}
@@ -1721,7 +1769,7 @@ export default function App() {
                           {cm&&[
                             {label:"Combined OOS CAGR",   strat:cm.cagr,  qqq:qm?.cagr,  unit:"%", fmtFn:v=>v.toFixed(1)},
                             {label:"Combined OOS Sharpe", strat:cm.sharpe,qqq:qm?.sharpe,unit:"",  fmtFn:v=>v.toFixed(2)},
-                            {label:"Combined OOS MDD",    strat:cm.mdd,   qqq:qm?.mdd,   unit:"%", higherBetter:true,fmtFn:v=>v.toFixed(1)},
+                            {label:"Combined OOS MDD",    strat:cm.mdd,   qqq:qm?.mdd,   unit:"%", higherBetter:true,fmtFn:v=>v.toFixed(1), alwaysRed:true},
                             {label:"Combined OOS 总收益", strat:cm.total, qqq:qm?.total,  unit:"%", fmtFn:v=>v.toFixed(1)},
                           ].map((s,i)=><MetricCard key={i} {...s}/>)}
                         </div>
@@ -1732,7 +1780,7 @@ export default function App() {
                             <div style={{fontSize:10,color:T.textSub,marginBottom:8}}>
                               WFO Combined OOS 净值曲线（策略 蓝线 vs QQQ 灰虚线）
                             </div>
-                            <EquityCurveChart stratEq={wfoResult.allOutEquity} qqqEq={wfoResult.qqqWfoEq} T={T}/>
+                            <EquityCurveChart stratEq={wfoResult.allOutEquity} qqqEq={wfoResult.qqqWfoEq} timestamps={wfoResult.allOutTs} T={T}/>
                           </div>
                         )}
 
