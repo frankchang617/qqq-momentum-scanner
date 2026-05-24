@@ -8,11 +8,185 @@
  *   darkMode  : boolean
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, Fragment } from 'react';
 import { backtestQqqRotation, buildQqqBenchmark, paramLabelQqq } from './strategies/qqqRotation.js';
 import { runQqqGridSearch } from './optimization/qqqGridSearch.js';
 import { runQqqWFO } from './optimization/qqqWfo.js';
 import { calcMetrics } from '../etf/strategies/metrics.js';
+
+// ─── 净值曲线图（与 QQQ成分股轮动 一致）────────────────────────────────────────
+function EquityCurveChart({ stratEq, qqqEq, timestamps, T }) {
+  const W = 700, H = 230;
+  const pad = { l:46, r:12, t:14, b:34 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const allV = [...stratEq, ...(qqqEq || [])];
+  const minV = Math.min(...allV) * 0.98, maxV = Math.max(...allV) * 1.02;
+  const rng = maxV - minV || 1;
+  const n = stratEq.length;
+  const tx = i => pad.l + (i / Math.max(n-1,1)) * iw;
+  const ty = v => pad.t + ih - ((v-minV)/rng)*ih;
+  const sp = stratEq.map((v,i) => `${tx(i)},${ty(v)}`).join(' ');
+  const qp = (qqqEq||[]).map((v,i) => `${tx(i)},${ty(v)}`).join(' ');
+  const ticks = [minV, minV+rng*0.25, minV+rng*0.5, minV+rng*0.75, maxV];
+  const timeTicks = [];
+  if (timestamps && timestamps.length > 1) {
+    const startYear = new Date(timestamps[0]*1000).getFullYear();
+    const endYear   = new Date(timestamps[timestamps.length-1]*1000).getFullYear();
+    for (let yr = startYear; yr <= endYear+1; yr++) {
+      const targetTs = Date.UTC(yr,0,1)/1000;
+      const idx = timestamps.findIndex(ts => ts >= targetTs);
+      if (idx >= 0 && idx < n) timeTicks.push({ x: tx(idx), label: String(yr) });
+    }
+  }
+  return (
+    <svg width={W} height={H} style={{ display:'block' }}>
+      {ticks.map((v,i) => (
+        <Fragment key={i}>
+          <line x1={pad.l} y1={ty(v)} x2={pad.l+iw} y2={ty(v)} stroke={T.border} strokeWidth="0.5" strokeDasharray="3,3"/>
+          <text x={pad.l-4} y={ty(v)+4} textAnchor="end" fill={T.textMuted} fontSize={9}>{((v-1)*100).toFixed(0)}%</text>
+        </Fragment>
+      ))}
+      <line x1={pad.l} y1={pad.t+ih} x2={pad.l+iw} y2={pad.t+ih} stroke={T.border} strokeWidth="0.5"/>
+      {timeTicks.map((tick,i) => (
+        <Fragment key={i}>
+          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textMuted} strokeWidth="0.5"/>
+          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textMuted} fontSize={9}>{tick.label}</text>
+        </Fragment>
+      ))}
+      {qqqEq && qqqEq.length > 0 && <polyline points={qp} fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeDasharray="5,3" opacity="0.7"/>}
+      <polyline points={sp} fill="none" stroke="#4488ee" strokeWidth="2"/>
+      <line x1={pad.l+10} y1={pad.t+10} x2={pad.l+26} y2={pad.t+10} stroke="#4488ee" strokeWidth="2"/>
+      <text x={pad.l+30} y={pad.t+14} fill={T.textSub} fontSize={10}>策略</text>
+      {qqqEq && qqqEq.length > 0 && <>
+        <line x1={pad.l+72} y1={pad.t+10} x2={pad.l+88} y2={pad.t+10} stroke={T.textMuted} strokeWidth="1.5" strokeDasharray="5,3"/>
+        <text x={pad.l+92} y={pad.t+14} fill={T.textSub} fontSize={10}>QQQ</text>
+      </>}
+    </svg>
+  );
+}
+
+// ─── 回撤曲线图 ────────────────────────────────────────────────────────────────
+function DrawdownChart({ drawdowns, timestamps, T }) {
+  const W = 700, H = 130;
+  const pad = { l:46, r:12, t:10, b:34 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const minV = Math.min(...drawdowns, -1) * 1.1;
+  const n = drawdowns.length;
+  const tx = i => pad.l + (i / Math.max(n-1,1)) * iw;
+  const ty = v => pad.t + (1 - v/minV)*ih;
+  const pts = drawdowns.map((v,i) => `${tx(i)},${ty(v)}`).join(' ');
+  const fill = `${pad.l},${pad.t} ${pts} ${pad.l+iw},${pad.t}`;
+  const timeTicks = [];
+  if (timestamps && timestamps.length > 1) {
+    const startYear = new Date(timestamps[0]*1000).getFullYear();
+    const endYear   = new Date(timestamps[timestamps.length-1]*1000).getFullYear();
+    for (let yr = startYear; yr <= endYear+1; yr++) {
+      const targetTs = Date.UTC(yr,0,1)/1000;
+      const idx = timestamps.findIndex(ts => ts >= targetTs);
+      if (idx >= 0 && idx < n) timeTicks.push({ x: tx(idx), label: String(yr) });
+    }
+  }
+  return (
+    <svg width={W} height={H} style={{ display:'block' }}>
+      <line x1={pad.l} y1={pad.t} x2={pad.l+iw} y2={pad.t} stroke={T.border} strokeWidth="0.5"/>
+      <polygon points={fill} fill="#ee334428"/>
+      <polyline points={pts} fill="none" stroke="#ee3344" strokeWidth="1.5"/>
+      <text x={pad.l-4} y={ty(minV)+4} textAnchor="end" fill={T.textMuted} fontSize={9}>{minV.toFixed(1)}%</text>
+      <text x={pad.l-4} y={pad.t+4}    textAnchor="end" fill={T.textMuted} fontSize={9}>0%</text>
+      <line x1={pad.l} y1={pad.t+ih} x2={pad.l+iw} y2={pad.t+ih} stroke={T.border} strokeWidth="0.5"/>
+      {timeTicks.map((tick,i) => (
+        <Fragment key={i}>
+          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textMuted} strokeWidth="0.5"/>
+          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textMuted} fontSize={9}>{tick.label}</text>
+        </Fragment>
+      ))}
+    </svg>
+  );
+}
+
+// ─── 年度收益柱状图 ────────────────────────────────────────────────────────────
+function AnnualBarsChart({ stratAnnual, qqqAnnual, T }) {
+  const W = 700, H = 160;
+  const pad = { l:46, r:12, t:14, b:28 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const years = [...new Set([...Object.keys(stratAnnual), ...Object.keys(qqqAnnual)])].sort();
+  const allV = [...Object.values(stratAnnual), ...Object.values(qqqAnnual), 10, -10];
+  const maxAbs = Math.max(Math.abs(Math.min(...allV)), Math.abs(Math.max(...allV)));
+  const spacing = iw / years.length;
+  const bw = spacing * 0.35;
+  const zY = pad.t + ih/2;
+  return (
+    <svg width={W} height={H} style={{ display:'block' }}>
+      <line x1={pad.l} y1={zY} x2={pad.l+iw} y2={zY} stroke={T.border} strokeWidth="1"/>
+      <text x={pad.l-4} y={zY+4} textAnchor="end" fill={T.textMuted} fontSize={9}>0%</text>
+      {years.map((yr, i) => {
+        const sv = stratAnnual[yr] ?? 0;
+        const qv = qqqAnnual[yr] ?? 0;
+        const cx = pad.l + spacing*i + spacing/2;
+        const svH = (sv/maxAbs)*(ih/2);
+        const qvH = (qv/maxAbs)*(ih/2);
+        return (
+          <g key={yr}>
+            <rect x={cx-bw-1} y={sv>=0?zY-svH:zY} width={bw} height={Math.abs(svH)} fill={sv>=0?'#4488ee99':'#ee334488'}/>
+            <rect x={cx+1}   y={qv>=0?zY-qvH:zY} width={bw} height={Math.abs(qvH)} fill={qv>=0?'#88aabb66':'#ee334444'}/>
+            <text x={cx} y={H-6} textAnchor="middle" fill={T.textMuted} fontSize={9}>{yr}</text>
+          </g>
+        );
+      })}
+      <rect x={pad.l+10} y={pad.t} width={10} height={8} fill="#4488ee99"/>
+      <text x={pad.l+24} y={pad.t+8} fill={T.textSub} fontSize={9}>策略</text>
+      <rect x={pad.l+62} y={pad.t} width={10} height={8} fill="#88aabb66"/>
+      <text x={pad.l+76} y={pad.t+8} fill={T.textSub} fontSize={9}>QQQ</text>
+    </svg>
+  );
+}
+
+// ─── 月度收益热图 ──────────────────────────────────────────────────────────────
+function MonthlyHeatmap({ monthlyRets, T }) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const years = Object.keys(monthlyRets).sort();
+  return (
+    <div style={{ overflowX:'auto' }}>
+      <table style={{ borderCollapse:'separate', borderSpacing:2, fontSize:10 }}>
+        <thead>
+          <tr>
+            <th style={{ padding:'3px 8px', color:T.textSub, textAlign:'left', fontWeight:500 }}></th>
+            {months.map((m,i) => <th key={i} style={{ padding:'2px 4px', color:T.textSub, textAlign:'center', fontWeight:400 }}>{m}</th>)}
+            <th style={{ padding:'2px 6px', color:T.textSub, textAlign:'center', fontWeight:500 }}>年度</th>
+          </tr>
+        </thead>
+        <tbody>
+          {years.map(yr => {
+            const yd = monthlyRets[yr] || {};
+            const annRet = (Object.values(yd).reduce((p,r) => p*(1+r/100), 1)-1)*100;
+            return (
+              <tr key={yr}>
+                <td style={{ padding:'2px 8px', color:T.textSub, fontWeight:500 }}>{yr}</td>
+                {Array.from({length:12}, (_,mo) => {
+                  const v = yd[mo];
+                  const bg = v==null ? T.pageBg
+                    : v>8?'#00aa4466':v>4?'#00aa4444':v>0?'#00aa4422'
+                    : v>-4?'#ee334422':v>-8?'#ee334444':'#ee334466';
+                  const tc = v==null ? T.textMuted : v>=0 ? '#00aa44' : '#ee3344';
+                  return (
+                    <td key={mo} style={{ padding:'3px 5px', textAlign:'center', borderRadius:3,
+                      background:bg, color:tc, fontFamily:'monospace', minWidth:44, whiteSpace:'nowrap' }}>
+                      {v==null ? '—' : (v>=0?'+':'')+v.toFixed(1)+'%'}
+                    </td>
+                  );
+                })}
+                <td style={{ padding:'2px 8px', textAlign:'center', fontFamily:'monospace', fontWeight:700,
+                  color:annRet>=0?'#00aa44':'#ee3344' }}>
+                  {(annRet>=0?'+':'')+annRet.toFixed(1)+'%'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // ─── 迷你折线图（SVG）────────────────────────────────────────────────────────
 function MiniLineChart({ series, width = 480, height = 120, T }) {
@@ -59,8 +233,8 @@ function MiniLineChart({ series, width = 480, height = 120, T }) {
   );
 }
 
-// ─── 指标卡片 ──────────────────────────────────────────────────────────────────
-function MetricCard({ label, value, sub, color, T }) {
+// ─── 简单指标卡（WFO 区域用）────────────────────────────────────────────────
+function SimpleMetricCard({ label, value, sub, color, T }) {
   return (
     <div style={{ textAlign: 'center', minWidth: 90 }}>
       <div style={{ fontSize: 9, color: T.textMuted, marginBottom: 3, letterSpacing: 0.5 }}>{label}</div>
@@ -68,6 +242,44 @@ function MetricCard({ label, value, sub, color, T }) {
       {sub && <div style={{ fontSize: 9, color: T.textMuted, marginTop: 2 }}>{sub}</div>}
     </div>
   );
+}
+
+// ─── 双值对比指标卡（回测结果用，与 QQQ成分股轮动 一致）──────────────────────
+function DualMetricCard({ label, strat, qqq, unit='', higherBetter=true, fmtFn=v=>v?.toFixed(2), alwaysRed=false, T }) {
+  const good = alwaysRed ? false : higherBetter ? (strat??0) >= (qqq??strat??0) : (strat??0) <= (qqq??strat??0);
+  return (
+    <div style={{ padding:'10px 14px', background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8, minWidth:130 }}>
+      <div style={{ fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:4 }}>{label}</div>
+      <div style={{ fontSize:18, fontWeight:700, fontFamily:'monospace', color:good?'#00aa44':'#ee3344' }}>
+        {strat != null ? fmtFn(strat)+unit : '—'}
+      </div>
+      {qqq != null && (
+        <div style={{ fontSize:10, color:T.textMuted, marginTop:2 }}>QQQ {fmtFn(qqq)}{unit}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── calcMetrics（小数）→ calcPortMetrics（百分比）格式转换 ──────────────────
+function toPortMetrics(m) {
+  if (!m) return null;
+  const annualRets = {};
+  for (const [yr, v] of Object.entries(m.annualReturns ?? {})) annualRets[yr] = v * 100;
+  const monthlyRets = {};
+  for (const [key, v] of Object.entries(m.monthlyReturns ?? {})) {
+    const [yr, mo] = key.split('-');
+    if (!monthlyRets[yr]) monthlyRets[yr] = {};
+    monthlyRets[yr][parseInt(mo) - 1] = v * 100;
+  }
+  return {
+    cagr:      (m.cagr      ?? 0) * 100,
+    sharpe:     m.sharpe    ?? 0,
+    mdd:       (m.mdd       ?? 0) * 100,
+    total:     (m.totalReturn ?? 0) * 100,
+    annualRets,
+    monthlyRets,
+    drawdowns: (m.drawdownCurve ?? []).map(v => v * 100),
+  };
 }
 
 // ─── 参数选择器行 ─────────────────────────────────────────────────────────────
@@ -107,6 +319,9 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   });
   const [btResult,  setBtResult]  = useState(null);
   const [btRunning, setBtRunning] = useState(false);
+
+  // ── 资金模拟 ──
+  const [initCapital, setInitCapital] = useState('10000');
 
   // ── 网格搜索 ──
   const [gsResult,   setGsResult]   = useState(null);
@@ -151,7 +366,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
         const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
         const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
 
-        setBtResult({ ...bt, metrics, qqqEq, qqqMetrics });
+        setBtResult({ ...bt, metrics, portMetrics: toPortMetrics(metrics), qqqEq, qqqMetrics, qqqPortMetrics: toPortMetrics(qqqMetrics) });
       } catch (e) { console.error('QQQ rotation backtest error:', e); }
       setBtRunning(false);
     }, 50);
@@ -172,7 +387,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
         const startOffset = histTs.indexOf(bt.timestamps[0]);
         const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
         const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
-        setBtResult({ ...bt, metrics, qqqEq, qqqMetrics });
+        setBtResult({ ...bt, metrics, portMetrics: toPortMetrics(metrics), qqqEq, qqqMetrics, qqqPortMetrics: toPortMetrics(qqqMetrics) });
       } catch (e) { console.error('QQQ rotation backtest error:', e); }
       setBtRunning(false);
     }, 50);
@@ -317,56 +532,77 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
         </button>
 
         {/* 回测结果 */}
-        {btResult && btResult.metrics && (
+        {btResult && btResult.portMetrics && (
           <div style={{ marginTop: 20 }}>
-            {/* 指标行 */}
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: '12px 0', borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, marginBottom: 16 }}>
-              <MetricCard label="夏普比率" value={fmt2(btResult.metrics.sharpe)} T={T}
-                color={btResult.metrics.sharpe > 1 ? '#4fc86e' : btResult.metrics.sharpe > 0.5 ? '#f0c040' : '#e05050'} />
-              <MetricCard label="年化收益 CAGR" value={pct(btResult.metrics.cagr)} T={T}
-                color={btResult.metrics.cagr > 0 ? '#4fc86e' : '#e05050'} />
-              <MetricCard label="最大回撤 MDD" value={pct(btResult.metrics.mdd)} T={T}
-                color={btResult.metrics.mdd > -0.2 ? '#4fc86e' : btResult.metrics.mdd > -0.35 ? '#f0c040' : '#e05050'} />
-              <MetricCard label="总收益" value={pct(btResult.metrics.totalReturn)} T={T} />
-              <MetricCard label="回测天数" value={`${btResult.timestamps.length}天`} T={T} sub={`${fmtDate(btResult.timestamps[0])} ~ ${fmtDate(btResult.timestamps.at(-1))}`} />
-              {btResult.qqqMetrics && (
-                <MetricCard label="QQQ 基准 Sharpe" value={fmt2(btResult.qqqMetrics.sharpe)} T={T}
-                  color={T.textMuted} sub={`CAGR ${pct(btResult.qqqMetrics.cagr)}`} />
-              )}
+            {/* 指标行：双值对比 */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+              <DualMetricCard label="CAGR（年化收益）" strat={btResult.portMetrics.cagr} qqq={btResult.qqqPortMetrics?.cagr} unit="%" fmtFn={v=>v.toFixed(1)} T={T}/>
+              <DualMetricCard label="Sharpe Ratio" strat={btResult.portMetrics.sharpe} qqq={btResult.qqqPortMetrics?.sharpe} fmtFn={v=>v.toFixed(2)} T={T}/>
+              <DualMetricCard label="最大回撤 MDD" strat={btResult.portMetrics.mdd} qqq={btResult.qqqPortMetrics?.mdd} unit="%" higherBetter={false} alwaysRed fmtFn={v=>v.toFixed(1)} T={T}/>
+              <DualMetricCard label="累积收益" strat={btResult.portMetrics.total} qqq={btResult.qqqPortMetrics?.total} unit="%" fmtFn={v=>v.toFixed(1)} T={T}/>
+              <div style={{ padding:'10px 14px', background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8, minWidth:120 }}>
+                <div style={{ fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:4 }}>换仓次数</div>
+                <div style={{ fontSize:18, fontWeight:700, fontFamily:'monospace', color:T.textBright }}>{btResult.tradeLog?.length ?? '—'}</div>
+                <div style={{ fontSize:10, color:T.textMuted, marginTop:2 }}>含买入操作</div>
+              </div>
             </div>
+
+            {/* 资金模拟 */}
+            {(() => {
+              const c = parseFloat(initCapital);
+              const eq = btResult.equityCurve;
+              const qEq = btResult.qqqEq;
+              const finalStrat = !isNaN(c) && eq?.length ? c * eq[eq.length-1] : null;
+              const finalQQQ   = !isNaN(c) && qEq?.length ? c * qEq[qEq.length-1] : null;
+              const fmtM = v => v >= 1e6 ? `${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `${(v/1e3).toFixed(1)}K` : `${v.toFixed(0)}`;
+              return (
+                <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginBottom:16, padding:'10px 16px', background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8 }}>
+                  <span style={{ fontSize:11, color:T.textSub, whiteSpace:'nowrap' }}>起始资金</span>
+                  <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ fontSize:12, color:T.textMuted }}>$</span>
+                    <input type="number" value={initCapital} onChange={e => setInitCapital(e.target.value)}
+                      style={{ width:110, padding:'4px 8px', background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:4, color:T.textBright, fontFamily:'inherit', fontSize:12 }}/>
+                  </div>
+                  {finalStrat != null && (
+                    <div style={{ display:'flex', gap:20, flexWrap:'wrap', alignItems:'center' }}>
+                      <span style={{ fontSize:12, color:T.textMuted }}>策略最终:&nbsp;
+                        <span style={{ fontFamily:'monospace', fontWeight:700, fontSize:14, color:finalStrat>=c?'#00aa44':'#ee3344' }}>${fmtM(finalStrat)}</span>
+                      </span>
+                      <span style={{ fontSize:12, color:T.textMuted }}>QQQ最终:&nbsp;
+                        <span style={{ fontFamily:'monospace', fontWeight:700, fontSize:14, color:finalQQQ!=null&&finalQQQ>=c?'#00aa44':'#ee3344' }}>{finalQQQ!=null?`$${fmtM(finalQQQ)}`:'—'}</span>
+                      </span>
+                      {finalQQQ != null && <span style={{ fontSize:11, fontFamily:'monospace', color:finalStrat>=finalQQQ?'#00aa44':'#ee3344' }}>
+                        {finalStrat>=finalQQQ?'▲':'▼'} {((finalStrat-finalQQQ)/finalQQQ*100).toFixed(1)}% vs QQQ
+                      </span>}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* 净值曲线 */}
-            <div style={{ overflowX: 'auto' }}>
-              <MiniLineChart
-                T={T}
-                series={[
-                  { data: btResult.equityCurve, color: '#4fc86e', label: '策略净值' },
-                  ...(btResult.qqqEq ? [{ data: btResult.qqqEq, color: '#5588cc', label: 'QQQ 买入持有' }] : []),
-                ]}
-                width={560}
-                height={130}
-              />
+            <div style={{ background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8, padding:'14px 16px', marginBottom:12, overflowX:'auto' }}>
+              <div style={{ fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:8 }}>净值曲线（策略 vs QQQ）</div>
+              <EquityCurveChart stratEq={btResult.equityCurve} qqqEq={btResult.qqqEq} timestamps={btResult.timestamps} T={T}/>
             </div>
 
-            {/* 年度收益对比 */}
-            {btResult.metrics.annualReturns && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 6 }}>年度收益</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {Object.entries(btResult.metrics.annualReturns).map(([yr, ret]) => {
-                    const qqqRet = btResult.qqqMetrics?.annualReturns?.[yr];
-                    return (
-                      <div key={yr} style={{ textAlign: 'center', minWidth: 56, padding: '4px 6px', background: T.pageBg, borderRadius: 4, border: `1px solid ${T.border}` }}>
-                        <div style={{ fontSize: 9, color: T.textMuted }}>{yr}</div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: ret >= 0 ? '#4fc86e' : '#e05050' }}>{pct(ret, 0)}</div>
-                        {qqqRet != null && <div style={{ fontSize: 9, color: T.textMuted }}>{pct(qqqRet, 0)}</div>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ fontSize: 9, color: T.textMuted, marginTop: 4 }}>上行：策略 · 下行：QQQ</div>
-              </div>
-            )}
+            {/* 回撤曲线 */}
+            <div style={{ background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8, padding:'14px 16px', marginBottom:12, overflowX:'auto' }}>
+              <div style={{ fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:8 }}>回撤曲线</div>
+              <DrawdownChart drawdowns={btResult.portMetrics.drawdowns} timestamps={btResult.timestamps} T={T}/>
+            </div>
+
+            {/* 年度收益柱状图 */}
+            <div style={{ background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8, padding:'14px 16px', marginBottom:12, overflowX:'auto' }}>
+              <div style={{ fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:8 }}>年度收益对比</div>
+              <AnnualBarsChart stratAnnual={btResult.portMetrics.annualRets} qqqAnnual={btResult.qqqPortMetrics?.annualRets ?? {}} T={T}/>
+            </div>
+
+            {/* 月度收益热图 */}
+            <div style={{ background:T.pageBg, border:`1px solid ${T.border}`, borderRadius:8, padding:'14px 16px', marginBottom:12 }}>
+              <div style={{ fontSize:10, color:T.textSub, letterSpacing:1, marginBottom:10 }}>月度收益热图（策略）</div>
+              <MonthlyHeatmap monthlyRets={btResult.portMetrics.monthlyRets} T={T}/>
+            </div>
           </div>
         )}
       </div>
@@ -761,7 +997,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                       { label: 'OOS Sharpe', value: cm.sharpe.toFixed(2),     sub: qm ? `QQQ ${qm.sharpe.toFixed(2)}` : null, color: cm.sharpe > 1 ? '#4fc86e' : cm.sharpe > 0.5 ? '#f0c040' : '#e05050' },
                       { label: 'OOS MDD',    value: fmtPct(cm.mdd),           sub: qm ? `QQQ ${fmtPct(qm.mdd)}` : null,   color: cm.mdd > -0.2 ? '#4fc86e' : cm.mdd > -0.35 ? '#f0c040' : '#e05050' },
                       { label: 'OOS 总收益', value: fmtPct(cm.totalReturn),   sub: qm ? `QQQ ${fmtPct(qm.totalReturn)}` : null, color: cm.totalReturn >= 0 ? '#4fc86e' : '#e05050' },
-                    ].map((m, i) => <MetricCard key={i} label={m.label} value={m.value} sub={m.sub} color={m.color} T={T} />)}
+                    ].map((m, i) => <SimpleMetricCard key={i} label={m.label} value={m.value} sub={m.sub} color={m.color} T={T} />)}
                   </div>
 
                   {/* OOS 净值曲线 */}
