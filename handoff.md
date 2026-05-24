@@ -203,6 +203,22 @@ git add -A && git commit -m "描述" && git push
 
 `DARK` / `LIGHT` 两个常量对象定义所有颜色 token（pageBg、cardBg、border、text 等），App 内 `const T = darkMode ? DARK : LIGHT`，所有 inline style 引用 `T.xxx`。信号颜色（绿/红）不在 theme 内，全局统一。
 
+## 近期变更（2026-05-24 本次 session）
+
+| commit | 内容 |
+|--------|------|
+| `4c3be31` | MDD 始终显示红色（`MetricCard` 新增 `alwaysRed` prop）；`EquityCurveChart` / `DrawdownChart` 接收 `timestamps`，底部渲染年份横轴刻度 |
+| `5aed0c9` | 亮色模式蓝色按钮（加载历史数据 / 运行固定参数回测 / 开始优化）文字改白色 |
+| `bac0a83` | 亮色模式紫色按钮（运行 WFO）文字改白色 |
+| `d9afdd0` | 亮色模式 MODE B 徽标文字改白色（MODE A 原本已是白色） |
+| `1c1e87b` | 加载历史数据按钮加载中状态文字跟随主题（临时修复） |
+| `eeec3f4` | 加载历史数据按钮加载中保持蓝底白字 + opacity 0.6，与「开始优化」风格完全一致 |
+
+### 规律总结：深色背景按钮颜色规则
+- **未运行**：蓝底/紫底 + `darkMode ? 淡色 : #ffffff`（白字）
+- **运行中**：保持同色背景 + `opacity: 0.6` + `cursor: not-allowed`（不改背景为 transparent）
+- **MODE X 徽标**：`darkMode ? 淡色 : #ffffff`
+
 ## 踩过的坑
 - Finnhub 免费版不支持历史日线（需付费）→ 改用 Yahoo Finance
 - Yahoo Finance 无 CORS 头 → Vite proxy（本地）+ Edge Function（生产）
