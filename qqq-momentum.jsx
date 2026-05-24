@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useMemo, useId, useEffect, Fragment } from "react";
 import EtfStrategyTab from "./src/etf/EtfStrategyTab.jsx";
+import QqqRotationTab from "./src/qqq/QqqRotationTab.jsx";
 
 // Nasdaq-100 components (updated May 2026, 101 symbols incl. GOOGL/GOOG dual class)
 const QQQ_COMPONENTS = [
@@ -1155,6 +1156,24 @@ export default function App() {
         }
         aligned.set(sym, { closes: closesArr, opens: opensArr });
       }
+      // 抓取 SHY（QQQ 轮转策略防御资产用）
+      try {
+        const shyRaw = await fetchCandlesExtended('SHY', histRange, signal);
+        if (shyRaw) {
+          const shyClosesArr = new Array(Nq).fill(null);
+          const shyOpensArr  = new Array(Nq).fill(null);
+          for (const { c, o, ts } of shyRaw) {
+            const idx = tsIdx.get(ts);
+            if (idx !== undefined) { shyClosesArr[idx] = c; shyOpensArr[idx] = o; }
+          }
+          for (let j = 1; j < Nq; j++) {
+            if (shyClosesArr[j] === null && shyClosesArr[j-1] !== null) shyClosesArr[j] = shyClosesArr[j-1];
+            if (shyOpensArr[j]  === null && shyOpensArr[j-1]  !== null) shyOpensArr[j]  = shyOpensArr[j-1];
+          }
+          aligned.set('SHY', { closes: shyClosesArr, opens: shyOpensArr });
+        }
+      } catch(e) { /* SHY 加载失败不影响整体 */ }
+
       setHistData(aligned); setHistTs(qqqTs); setHistLoading(false);
     } catch(e) { if(!signal.aborted){ console.error(e); setHistLoading(false); } }
   },[histRange]);
@@ -1585,7 +1604,7 @@ export default function App() {
             display:"flex", gap:8, padding:"10px 28px 0",
             borderBottom:`1px solid ${T.navBorder}`, background:T.cardBg,
           }}>
-            {[{id:"qqq",label:"QQQ 成分股轮动"},{id:"etf",label:"ETF 跨资产策略"}].map(sub=>(
+            {[{id:"qqq",label:"QQQ 成分股轮动"},{id:"qqqRotation",label:"QQQ 轮转策略"},{id:"etf",label:"ETF 跨资产策略"}].map(sub=>(
               <button key={sub.id} onClick={()=>setBtSubTab(sub.id)} style={{
                 padding:"7px 18px", borderRadius:"6px 6px 0 0",
                 cursor:"pointer", fontFamily:"inherit", fontSize:12,
@@ -1601,6 +1620,11 @@ export default function App() {
 
           {/* ETF 跨资产策略内容 */}
           {btSubTab === "etf" && <EtfStrategyTab T={T} darkMode={darkMode} />}
+
+          {/* QQQ 轮转策略内容 */}
+          {btSubTab === "qqqRotation" && (
+            <QqqRotationTab histData={histData} histTs={histTs} T={T} darkMode={darkMode} />
+          )}
 
           {/* QQQ 成分股轮动内容 */}
           {btSubTab === "qqq" && <div style={{padding:"20px 28px"}}>

@@ -1,80 +1,95 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 6（MOO 开盘执行模型 ✅ 全部完成）
+更新时间：2026-05-24 Session 7（QQQ 轮转策略新 Tab · 进行中）
 
 ## 项目结构
 
 ```
-qqq-momentum.jsx              # QQQ 成分股动能扫描主文件
-src/etf/
-  data/fetchEtfData.js        # ETF 数据拉取 + adjOpen 计算
+qqq-momentum.jsx              # QQQ 成分股动能扫描主文件（待改）
+src/etf/                      # ETF 跨资产策略模块（已完成）
+src/qqq/                      # QQQ 轮转策略模块（新建）
   strategies/
-    momentum.js               # 策略1：强势轮动（已加 opens）
-    dualMomentum.js           # 策略2：双动能（已加 opens）
-    volControl.js             # 策略3：波动率控管（已加 opens）
-    metrics.js                # 回测指标计算
+    qqqRotation.js            # ✅ 回测引擎（已创建）
   optimization/
-    gridSearch.js             # 参数网格搜索（已加 opens）
-    wfo.js                    # Walk Forward Optimization（已加 opens）
-  EtfStrategyTab.jsx          # ETF 策略主界面
+    qqqGridSearch.js          # ✅ 144种参数网格搜索（已创建）
+  QqqRotationTab.jsx          # ✅ 新 Tab 主界面（已创建）
 ```
 
 ---
 
-## ✅ 已完成工作（Session 6 · commit `56dbb8e`）
+## ✅ 已完成（本 Session）
 
-### MOO 执行模型（T 收盘信号 → T+1 开盘执行）
+### 新增文件
 
-**目标**：将回测执行模型从「T-1 收盘信号 → T 收盘执行」改为「T 收盘信号 → T+1 开盘执行（Market-On-Open）」，使用真实 adjOpen 价格。
+**`src/qqq/strategies/qqqRotation.js`**
+- `backtestQqqRotation(histData, timestamps, params, startIdx, endIdx)`
+- 参数：`{ lookback, topN, rebalFreq, marketFilter, defensiveAsset }`
+- MOO 执行（T+1 开盘）、SMA200 过滤、等权、正动能过滤
+- `getQqqRotationParams()` 生成 144 种参数组合
+- `buildQqqBenchmark()` 生成 QQQ 买入持有基准曲线
+- `paramLabelQqq()` 格式化参数标签
 
-**adjOpen 计算**：`adjOpen = rawOpen × (adjClose / rawClose)`
+**`src/qqq/optimization/qqqGridSearch.js`**
+- `runQqqGridSearch(histData, timestamps, startIdx, endIdx, onProgress)`
+- 遍历 144 种组合，calcMetrics + calcCompositeScores，降序返回
 
-**调仓日 3 步逻辑**：
-1. 旧持仓 close[t-1] → open[t] 隔夜收益
-2. 更新持仓（使用 T-1 收盘信号）
-3. 新持仓 open[t] → close[t] 日内收益
-
-**非调仓日**：close-to-close（不变）
-
-### 改动文件汇总
-
-| 文件 | 改动内容 |
-|------|---------|
-| `qqq-momentum.jsx` | `fetchCandlesExtended` 返回 adjOpen；`loadHistData` 存 `{closes,opens}`；`portfolioBacktest` 3 步调仓 |
-| `src/etf/data/fetchEtfData.js` | adjOpen 计算，`alignToBase` 返回 `{closes, opens}` dict |
-| `src/etf/strategies/momentum.js` | `opens=null` 参数，调仓日 3 步逻辑 |
-| `src/etf/strategies/dualMomentum.js` | `opens=null` 参数，调仓日 3 步逻辑 |
-| `src/etf/strategies/volControl.js` | `opens=null` 参数，`prevWeights` 追踪，`regimeChanged` 时 2 步换仓 |
-| `src/etf/optimization/gridSearch.js` | `opens=null` 透传给 3 个策略 |
-| `src/etf/optimization/wfo.js` | `opens=null` 传给 IS gridSearch + OOS 3 策略 |
-| `src/etf/EtfStrategyTab.jsx` | 5 处调用点全部追加 `etfData.opens` |
+**`src/qqq/QqqRotationTab.jsx`**
+- 接收 `histData, histTs, T, darkMode` props
+- Step 1：固定参数手动回测（参数选择器 + 净值曲线 + 年度收益对比）
+- Step 2：一键优化（144 种，进度条 + 结果表格，含最终金额列）
+- 操作建议信号面板（市场状态 + 持仓明细 + 投入金额 → 每只股数）
+- 点击表格行可将参数加载到 Step 1
 
 ---
 
-## ✅ 已完成工作（Session 5 · commit `62b953f`）
+## ⏳ 下一步：修改 qqq-momentum.jsx（3处改动）
 
-### WFO 单窗口重构
+### 改动1：import QqqRotationTab
+```js
+// 在文件顶部，紧接 EtfStrategyTab import 之后添加：
+import QqqRotationTab from "./src/qqq/QqqRotationTab.jsx";
+```
 
-- **单窗口**：前 70% IS（≈7年）+ 后 30% OOS（≈3年），非滚动
-- **表格列**：IS/OOS 时间段拆成 4 列（IS Start / IS End / OOS Start / OOS End）
-- **参数列**：重命名为「Selected TopN/Lookback/Rebalance/Market Filter」
-- **10年数据**：新增「10年」加载选项，带紫色 "WFO" 标签
-- **参数网格**：448 种组合不变（4×7×4×4）
+### 改动2：loadHistData 增加 SHY 数据
+在 `loadHistData` 函数末尾（`setHistData(aligned)` 之前），添加 SHY 抓取：
+```js
+// 抓取 SHY（防御资产，QQQ轮转策略用）
+try {
+  const shyRaw = await fetchCandlesExtended('SHY', histRange, signal);
+  if (shyRaw) {
+    const shyCloses = new Array(Nq).fill(null);
+    const shyOpens  = new Array(Nq).fill(null);
+    for (const { c, o, ts } of shyRaw) {
+      const idx = tsIdx.get(ts);
+      if (idx !== undefined) { shyCloses[idx] = c; shyOpens[idx] = o; }
+    }
+    for (let j = 1; j < Nq; j++) {
+      if (shyCloses[j] === null && shyCloses[j-1] !== null) shyCloses[j] = shyCloses[j-1];
+      if (shyOpens[j]  === null && shyOpens[j-1]  !== null) shyOpens[j]  = shyOpens[j-1];
+    }
+    aligned.set('SHY', { closes: shyCloses, opens: shyOpens });
+  }
+} catch(e) { /* SHY 加载失败不影响整体 */ }
+```
+
+### 改动3：btSubTab 增加新 Tab 入口 + 渲染
+- 在 Tab 列表数组加入 `{ id: 'qqqRotation', label: 'QQQ 轮转策略' }`
+- 在渲染区加入：
+```jsx
+{btSubTab === 'qqqRotation' && (
+  <QqqRotationTab histData={histData} histTs={histTs} T={T} darkMode={darkMode} />
+)}
+```
 
 ---
 
-## 关键决策记录
+## 关键设计决策
 
 | 决策 | 内容 |
 |------|------|
-| MOO 方案选择 | 方案 A（真实 adjOpen）优于方案 B（收盘价近似），已采用 |
-| WFO 窗口数 | 单窗口（70/30），非滚动 |
-| volControl 特殊处理 | 日频调仓追踪 `prevWeights`，仅 `regimeChanged && opens` 时走 2 步 |
-| histData 兼容性 | `portfolioBacktest` 检查 `d.closes` 存在与否，兼容旧平铺数组 |
-| opens 参数默认值 | 所有函数 `opens=null`，存量调用不受影响 |
-
----
-
-## 下一步（待规划）
-
-当前所有功能已全部完成并通过 `npm run build`，可根据需要开展新功能或优化。
+| 数据传入 | histData/histTs 以 props 从父组件传入，不重复加载 |
+| SHY 数据 | 在 loadHistData 末尾额外抓取，存入 aligned Map |
+| 未加载提示 | histData=null 时显示"请先加载数据"引导 |
+| 点击表格行 | 自动将参数填入 Step 1，方便快速回测验证 |
+| 投入金额 | 信号面板和网格搜索共用同一 investAmount state |
+| 最终金额 | `inv × (1 + totalReturn)` 直接显示 |
