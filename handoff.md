@@ -1,27 +1,83 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 7（QQQ 轮转策略 WFO · 进行中）
+更新时间：2026-05-24 Session 7（QQQ 轮转策略新 Tab 全部完成 ✅）
 
-## 已完成
-- src/qqq/strategies/qqqRotation.js ✅
-- src/qqq/optimization/qqqGridSearch.js ✅
-- src/qqq/optimization/qqqWfo.js ✅（runQqqWFO，单窗口70/30，144种）
-- src/qqq/QqqRotationTab.jsx：import runQqqWFO ✅，wfo state ✅，handleRunWFO ✅
-- qqq-momentum.jsx：import + SHY + 新Tab ✅
+## 项目结构
 
-## 下一步（立即执行）
-QqqRotationTab.jsx 末尾（最后 `</div>` 前）插入 WFO UI 区块，
-结构与现有 QQQ 成分股轮动 WFO 完全一致：
-- 可折叠 MODE B 按钮
-- 说明文字
-- IS 优化指标选择（Sharpe/CAGR/Calmar）
-- 运行按钮 + 进度
-- 窗口明细表（IS/OOS时间 + 参数列 + 评分 + OOS指标）
-- OOS 净值曲线
-- Mode A vs Mode B 对比表
+```
+qqq-momentum.jsx              # QQQ 成分股动能扫描主文件
+src/etf/                      # ETF 跨资产策略模块（已完成）
+src/qqq/                      # QQQ 轮转策略模块（本 Session 新建，已完成）
+  strategies/
+    qqqRotation.js            # 回测引擎（backtestQqqRotation，144种参数）
+  optimization/
+    qqqGridSearch.js          # 参数网格搜索（144种组合）
+    qqqWfo.js                 # Walk Forward Optimization（单窗口70/30）
+  QqqRotationTab.jsx          # 完整 Tab 界面（Step1/信号/Step2/WFO）
+```
 
-参数列映射（QQQ轮转专用）：
-- Lookback: {21:'1M', 63:'3M', 126:'6M'}
-- TopN: `Top ${bp.topN}`
-- RebalFreq: {5:'每周', 10:'每两周', 21:'每月'}
-- MarketFilter+Defensive: filter=false→'无过滤', filter=true→`SMA200→${bp.defensiveAsset}`
+---
+
+## ✅ Session 7 完成（commit `fee7332`）
+
+### QQQ 轮转策略 Tab 全功能上线
+
+| 功能 | 说明 |
+|------|------|
+| Step 1 · 固定参数回测 | 参数选择器 + 净值曲线 + 年度收益对比 |
+| 操作建议信号面板 | 市场状态(QQQ vs SMA200) + 当前持仓 + 投入金额→买入股数 |
+| Step 2 · 一键优化 | 144种组合，进度条，结果表含最终金额列 |
+| Step 3 · WFO | 单窗口70/30，参数明细表，OOS净值曲线，Mode A vs B对比 |
+
+### 参数网格（144种组合）
+
+| 参数 | 候选值 |
+|------|--------|
+| lookback | 21、63、126（1M/3M/6M） |
+| topN | 1、3、5、10 |
+| rebalFreq | 5、10、21（周/双周/月） |
+| marketFilter | false（无过滤）/ true（QQQ < SMA200） |
+| defensiveAsset | CASH / QQQ / SHY（filter=true 时） |
+
+- filter=false：36种 · filter=true：108种 · 合计：144种
+
+### 关键设计
+
+| 项目 | 设计 |
+|------|------|
+| 执行方式 | T 收盘信号 → T+1 开盘执行（MOO，adjOpen） |
+| 选股规则 | 单一 lookback 动能，仅正动能入选，等权 |
+| 熊市过滤 | SMA200（固定，不作为优化参数） |
+| 防御资产 | CASH / QQQ / SHY（SHY 在 loadHistData 额外抓取） |
+| WFO 逻辑 | 单窗口 70/30，IS 选参固定用于 OOS，不事后调参 |
+| 数据传入 | histData/histTs 以 props 从父组件传入，不重复加载 |
+
+---
+
+## ✅ Session 6 完成（commit `56dbb8e`）— MOO 执行模型
+
+所有策略（ETF + QQQ 成分股）改为 T+1 开盘执行（adjOpen）。
+改动文件：fetchEtfData / momentum / dualMomentum / volControl / gridSearch / wfo / EtfStrategyTab / qqq-momentum。
+
+---
+
+## ✅ Session 5 完成（commit `62b953f`）— WFO 单窗口重构
+
+ETF WFO 改为单窗口 70/30，表格拆成 4 列，支持 10 年数据。
+
+---
+
+## 使用流程（QQQ 轮转策略）
+
+1. 在「QQQ 成分股轮动」标签页选 **10年** 数据并加载
+2. 切换到「**QQQ 轮转策略**」标签页
+3. **Step 2 一键优化** → 找最高 Sharpe 组合 → 点击行载入参数
+4. **Step 1 运行回测** → 查看净值曲线和年度收益
+5. **Step 3 WFO** → 验证参数稳健性（Mode A vs Mode B 对比）
+6. **信号面板** → 输入投入金额 → 按提示买入/持有
+
+---
+
+## 下一步（待规划）
+
+所有规划功能已全部完成，可根据需要开展新功能或优化。
