@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 2（新增 ETF 跨资产策略模块：架构已确认，代码编写进行中 🚧）
+更新时间：2026-05-24 Session 3（ETF 策略步骤结构对齐 QQQ 风格）
 
 ## 项目结构
 
@@ -203,7 +203,7 @@ git add -A && git commit -m "描述" && git push
 
 `DARK` / `LIGHT` 两个常量对象定义所有颜色 token（pageBg、cardBg、border、text 等），App 内 `const T = darkMode ? DARK : LIGHT`，所有 inline style 引用 `T.xxx`。信号颜色（绿/红）不在 theme 内，全局统一。
 
-## 🚧 进行中：ETF 跨资产策略模块（Session 2，2026-05-24）
+## ✅ 已完成：ETF 跨资产策略模块（Session 2，2026-05-24）
 
 ### 已确认的架构决策
 
@@ -285,16 +285,61 @@ src/etf/
 - [x] `src/etf/EtfStrategyTab.jsx` — 完整主容器
 - [x] `qqq-momentum.jsx` — 加入 import + 第三个 Tab `"etf"`
 - [x] 构建成功（c94d910），已推送 GitHub / Vercel
-- [ ] **UI 修正中**：误将 ETF 策略做成顶栏第三个 Tab，应改为「策略回测」内的二级 Tab（方案A）
-  - 顶栏恢复 2 个 Tab（扫描器 | 策略回测）
-  - 策略回测内顶部加二级 Tab：`[QQQ 成分股轮动]` `[ETF 跨资产策略]`
-  - 新增 `btSubTab` state（'qqq' | 'etf'），已有 backtest 内容切入 'qqq'，EtfStrategyTab 切入 'etf'
+- [x] **UI 已修正为方案A**（commit df5e15e）：顶栏保持 2 Tab，策略回测内部加二级 Tab
+  - 顶栏：`扫描器 | 策略回测`
+  - 策略回测内顶部：`[ QQQ 成分股轮动 ]  [ ETF 跨资产策略 ]`
+  - `btSubTab` state 控制切换（'qqq' | 'etf'）
 
 ### 关键代码约定（来自现有代码分析）
 - fetch 模式：`/api/yahoo?symbol=XXX&range=10y`，VIX 用 `encodeURIComponent('^VIX')`
 - 返回格式：`result.timestamp[]` + `result.indicators.adjclose[0].adjclose[]`
 - 主题：`DARK`/`LIGHT` 对象，通过 props 传 `T` 和 `darkMode`
 - Tab 切换：`activeTab` state + button 数组 map
+
+---
+
+## Session 3 变更（2026-05-24）
+
+### ETF 跨资产策略步骤结构对齐 QQQ 风格
+
+**改动文件**：`src/etf/EtfStrategyTab.jsx`
+
+**问题**：ETF 策略用一个大 Step 2 卡片 + 内部 5 个 Tab（强势轮动/双动能/波动率控管/一键优化/Walk Forward），与 QQQ 的扁平分层结构不一致。
+
+**修改内容**：
+- `stratTabs` 改为仅保留 3 个策略 Tab（强势轮动 / 双动能 / 波动率控管）
+- 新增 `showOpt` / `showWfo` state
+- Step 1 标题样式改为 `STEP 1 · ...`（全大写 + letterSpacing，与 QQQ 一致）
+- Step 1 加载按钮样式改为与 QQQ 相同（`#004488/#0055cc` + `#88ccff/#ffffff` 文字）
+- Step 1 进度条改为蓝绿渐变（`linear-gradient(90deg,#005bcc,#00c96e)`）
+- Step 2 标题同步改为 `STEP 2 · ...` 风格
+- **一键优化**：从 Tab 4 独立出来，改为 Step 2 下方的**可折叠手风琴**（蓝色 ▶/▼，与 QQQ Grid Search 一致）
+- **Walk Forward**：从 Tab 5 独立出来，改为最下方**可折叠手风琴**（紫色 ▶/▼ + `MODE B` 徽标，与 QQQ WFO 一致）
+
+**最终布局结构**（对齐后）：
+```
+STEP 1 · 加载历史数据（10年）         ← 卡片
+STEP 2 · 选择策略并回测               ← 卡片
+  [强势轮动] [双动能] [波动率控管]     ← 三策略 Tab
+  参数 + 运行按钮 + 结果               ← 内容区
+▶ 参数全量扫描（一键优化，86种组合）   ← 可折叠，展开后渲染 OptimizePanel
+▶ MODE B  Walk Forward Optimization   ← 可折叠，展开后渲染 WfoPanel
+```
+
+**当前状态**：代码已修改，待验证运行。
+
+---
+
+## Session 2 commit 记录（2026-05-24）
+
+| commit | 内容 |
+|--------|------|
+| `c94d910` | feat: 新增 ETF 跨资产策略模块（19 个新文件，2997 行新增）|
+| `df5e15e` | fix: ETF 策略改为策略回测 Tab 内的二级 Tab（方案A），顶栏保持 2 个 Tab |
+
+### 踩坑记录（Session 2）
+- `qqq-momentum.jsx` 在项目根目录，import 新的 `src/etf/` 文件需用 `./src/etf/` 而非 `./etf/`
+- 在已有 JSX 块内插入新的条件渲染 + 容器 div，必须同时维护所有闭合标签，否则出现"JSX 元素没有对应结束标记"错误
 
 ---
 

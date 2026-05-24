@@ -769,6 +769,8 @@ export default function EtfStrategyTab({ T, darkMode }) {
   const [loadProgress, setLoadProgress] = useState({ done: 0, total: 11 });
   const [loadError, setLoadError]   = useState(null);
   const [activeStrat, setActiveStrat] = useState('momentum');
+  const [showOpt, setShowOpt]       = useState(false);
+  const [showWfo, setShowWfo]       = useState(false);
   const abortRef = useRef(null);
 
   // ── 加载数据 ──
@@ -794,11 +796,9 @@ export default function EtfStrategyTab({ T, darkMode }) {
   }, [loading]);
 
   const stratTabs = [
-    { id: 'momentum',    label: '强势轮动' },
-    { id: 'dual',        label: '双动能' },
-    { id: 'volControl',  label: '波动率控管' },
-    { id: 'optimize',    label: '⚡ 一键优化' },
-    { id: 'wfo',         label: '🔄 Walk Forward' },
+    { id: 'momentum',   label: '强势轮动' },
+    { id: 'dual',       label: '双动能' },
+    { id: 'volControl', label: '波动率控管' },
   ];
 
   return (
@@ -809,33 +809,40 @@ export default function EtfStrategyTab({ T, darkMode }) {
         background: T.cardBg, border: `1px solid ${T.border}`,
         borderRadius: 10, padding: '16px 20px', marginBottom: 20,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.textBright, marginBottom: 10 }}>
-          Step 1 · 加载历史数据（10年）
+        <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 10 }}>
+          STEP 1 · 加载历史数据（10年）
         </div>
 
         {!etfData ? (
           <div>
-            <div style={{ fontSize: 12, color: T.textSub, marginBottom: 12 }}>
-              标的：QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM / SOXX + ^VIX &ensp;·&ensp;
-              数据源：Yahoo Finance &ensp;·&ensp; 预计 15～20 秒
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: loading ? 12 : 0 }}>
+              <div style={{ fontSize: 11, color: T.textMuted }}>
+                标的：QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM / SOXX + ^VIX
+              </div>
+              <button onClick={handleLoad} disabled={loading} style={{
+                padding: '5px 16px', borderRadius: 6, fontFamily: 'inherit', fontSize: 11,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                background: darkMode ? '#004488' : '#0055cc',
+                border: '1px solid #4488ee',
+                color: darkMode ? '#88ccff' : '#ffffff',
+                opacity: loading ? 0.6 : 1,
+              }}>
+                {loading
+                  ? `加载中… (${loadProgress.done}/${loadProgress.total}${loadProgress.sym ? ' · ' + loadProgress.sym : ''})`
+                  : '↓ 加载历史数据'}
+              </button>
             </div>
-            <button onClick={handleLoad} disabled={loading} style={{
-              padding: '8px 22px', borderRadius: 6, fontFamily: 'inherit', fontSize: 12,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              background: '#4488ee', color: '#fff', border: 'none',
-              opacity: loading ? 0.6 : 1,
-            }}>
-              {loading
-                ? `加载中… (${loadProgress.done}/${loadProgress.total}${loadProgress.sym ? ' · ' + loadProgress.sym : ''})`
-                : '↓ 加载历史数据'}
-            </button>
 
             {loading && (
-              <div style={{ marginTop: 10, maxWidth: 300 }}>
-                <div style={{ height: 4, background: T.barTrack, borderRadius: 2, overflow: 'hidden' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.textSub, marginBottom: 4 }}>
+                  <span>正在拉取 {loadProgress.done} / {loadProgress.total}</span>
+                  <span>{Math.round((loadProgress.done / loadProgress.total) * 100)}%</span>
+                </div>
+                <div style={{ height: 3, background: T.barTrack, borderRadius: 2, overflow: 'hidden', maxWidth: 300 }}>
                   <div style={{
                     width: `${(loadProgress.done / loadProgress.total) * 100}%`,
-                    height: '100%', background: '#4488ee', borderRadius: 2,
+                    height: '100%', background: 'linear-gradient(90deg,#005bcc,#00c96e)', borderRadius: 2,
                     transition: 'width 0.3s',
                   }} />
                 </div>
@@ -850,11 +857,12 @@ export default function EtfStrategyTab({ T, darkMode }) {
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: '#4fc86e' }}>✓ 数据已加载</span>
+            <span style={{ fontSize: 11, color: '#00aa44' }}>
+              ✓ 已加载 {etfData.symbols.length} 个标的 × 10年数据
+            </span>
             <span style={{ fontSize: 11, color: T.textMuted }}>
               {etfData.dataRange.start} ~ {etfData.dataRange.end} &ensp;·&ensp;
-              {etfData.dataRange.days} 个交易日 &ensp;·&ensp;
-              {etfData.symbols.length} 个标的
+              {etfData.dataRange.days} 个交易日
               {etfData.vixLoaded ? ' + VIX' : ' (VIX 未加载)'}
             </span>
             {etfData.loadErrors.length > 0 && (
@@ -876,17 +884,17 @@ export default function EtfStrategyTab({ T, darkMode }) {
       {/* ── Step 2：策略选择 + 参数 + 结果 ── */}
       <div style={{
         background: T.cardBg, border: `1px solid ${T.border}`,
-        borderRadius: 10, padding: '16px 20px',
+        borderRadius: 10, padding: '16px 20px', marginBottom: 20,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.textBright, marginBottom: 12 }}>
-          Step 2 · 选择策略并回测
+        <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 12 }}>
+          STEP 2 · 选择策略并回测
         </div>
 
-        {/* 三级策略 Tab */}
+        {/* 三策略 Tab（强势轮动 / 双动能 / 波动率控管） */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
           {stratTabs.map(t => (
             <button key={t.id} onClick={() => setActiveStrat(t.id)} style={{
-              padding: '6px 16px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
+              padding: '5px 16px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12,
               background: activeStrat === t.id ? '#4488ee22' : 'transparent',
               border: `1px solid ${activeStrat === t.id ? '#4488ee' : T.btnBorder}`,
               color: activeStrat === t.id ? '#4488ee' : T.btnColor,
@@ -895,17 +903,81 @@ export default function EtfStrategyTab({ T, darkMode }) {
         </div>
 
         {!etfData && (
-          <div style={{ color: T.textMuted, fontSize: 12, padding: '20px 0' }}>
+          <div style={{ color: T.textMuted, fontSize: 12, padding: '12px 0' }}>
             请先完成 Step 1 加载历史数据
           </div>
         )}
 
-        {etfData && activeStrat === 'momentum'   && <MomentumPanel   etfData={etfData} T={T} />}
-        {etfData && activeStrat === 'dual'        && <DualMomentumPanel etfData={etfData} T={T} />}
-        {etfData && activeStrat === 'volControl'  && <VolControlPanel  etfData={etfData} T={T} />}
-        {etfData && activeStrat === 'optimize'    && <OptimizePanel    etfData={etfData} T={T} />}
-        {etfData && activeStrat === 'wfo'         && <WfoPanel         etfData={etfData} T={T} />}
+        {etfData && activeStrat === 'momentum'  && <MomentumPanel    etfData={etfData} T={T} />}
+        {etfData && activeStrat === 'dual'       && <DualMomentumPanel etfData={etfData} T={T} />}
+        {etfData && activeStrat === 'volControl' && <VolControlPanel  etfData={etfData} T={T} />}
       </div>
+
+      {/* ── 参数全量扫描（一键优化，可折叠） ── */}
+      {etfData && (
+        <div style={{ marginBottom: 20 }}>
+          <button
+            onClick={() => setShowOpt(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', background: T.cardBg,
+              border: `1px solid ${T.border}`,
+              borderRadius: showOpt ? '8px 8px 0 0' : 8,
+              cursor: 'pointer', color: T.textSub,
+              fontFamily: 'inherit', fontSize: 11, width: '100%', textAlign: 'left',
+            }}
+          >
+            <span style={{ color: '#4488ee', fontWeight: 700 }}>{showOpt ? '▼' : '▶'}</span>
+            参数全量扫描（一键优化，86 种组合）
+            <span style={{ fontSize: 10, color: T.textVMuted || T.textMuted, marginLeft: 4 }}>
+              — 三策略合并，百分位综合评分
+            </span>
+          </button>
+          {showOpt && (
+            <div style={{
+              padding: '16px 20px', background: T.cardBg,
+              border: `1px solid ${T.border}`, borderTop: 'none',
+              borderRadius: '0 0 8px 8px',
+            }}>
+              <OptimizePanel etfData={etfData} T={T} darkMode={darkMode} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Walk Forward Optimization（可折叠） ── */}
+      {etfData && (
+        <div style={{ marginBottom: 20 }}>
+          <button
+            onClick={() => setShowWfo(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', background: T.cardBg,
+              border: `1px solid ${T.border}`,
+              borderRadius: showWfo ? '8px 8px 0 0' : 8,
+              cursor: 'pointer', color: T.textSub,
+              fontFamily: 'inherit', fontSize: 11, width: '100%', textAlign: 'left',
+            }}
+          >
+            <span style={{ color: '#aa66ff', fontWeight: 700 }}>{showWfo ? '▼' : '▶'}</span>
+            <span style={{
+              background: '#5522aa',
+              color: darkMode ? '#ddb8ff' : '#ffffff',
+              fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4, letterSpacing: 1,
+            }}>MODE B</span>
+            Walk Forward Optimization（滚动验证，无未来数据）
+          </button>
+          {showWfo && (
+            <div style={{
+              padding: '16px 20px', background: T.cardBg,
+              border: `1px solid ${T.border}`, borderTop: 'none',
+              borderRadius: '0 0 8px 8px',
+            }}>
+              <WfoPanel etfData={etfData} T={T} darkMode={darkMode} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
