@@ -233,6 +233,7 @@ git add -A && git commit -m "描述" && git push
 - MDD 显示为正数（如 +20.3%）语义错误 → `calcPortMetrics` 改为返回 `-mdd`（负数），所有 MetricCard 的 MDD 改 `higherBetter=true`（越接近0越好），一键优化排序改为降序，CAGR/MDD 比率改用 `Math.abs`
 - 单股回测新增 CAGR/Sharpe/MDD 均基于顺序复利净值曲线（trade by trade），样本量小（3～8次），看方向比看绝对值更有意义
 - WFO 原始错误：`runAllCombos` 仅测 topN=[5,10,20]、rebalanceFreq=['weekly','monthly']、参数仅96种，且窗口设计用固定3y+1y / 60%+20%，与 70/30 原则不符 → 全部重写：Grid Search 扩展到 448种（4×7×4×4），70/30 窗口，marketFilter 替换 qqq200Filter，新增 daily/quarterly 调仓
+- 按钮加载中 background 改为 transparent 导致亮色模式文字不可见 → 规则：加载中**不改背景色**，只加 `opacity:0.6` + `cursor:not-allowed`；文字颜色随背景保持不变
 
 ## Claude Code 开发环境配置
 
