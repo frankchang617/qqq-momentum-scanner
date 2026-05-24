@@ -298,119 +298,72 @@ src/etf/
 
 ---
 
-## Session 3 变更（2026-05-24）
+## Session 3 ✅ 完成记录（2026-05-24）
 
-### ETF 跨资产策略步骤结构对齐 QQQ 风格
+### commit 列表
 
-**改动文件**：`src/etf/EtfStrategyTab.jsx`
-
-**问题**：ETF 策略用一个大 Step 2 卡片 + 内部 5 个 Tab（强势轮动/双动能/波动率控管/一键优化/Walk Forward），与 QQQ 的扁平分层结构不一致。
-
-**修改内容**：
-- `stratTabs` 改为仅保留 3 个策略 Tab（强势轮动 / 双动能 / 波动率控管）
-- 新增 `showOpt` / `showWfo` state
-- Step 1 标题样式改为 `STEP 1 · ...`（全大写 + letterSpacing，与 QQQ 一致）
-- Step 1 加载按钮样式改为与 QQQ 相同（`#004488/#0055cc` + `#88ccff/#ffffff` 文字）
-- Step 1 进度条改为蓝绿渐变（`linear-gradient(90deg,#005bcc,#00c96e)`）
-- Step 2 标题同步改为 `STEP 2 · ...` 风格
-- **一键优化**：从 Tab 4 独立出来，改为 Step 2 下方的**可折叠手风琴**（蓝色 ▶/▼，与 QQQ Grid Search 一致）
-- **Walk Forward**：从 Tab 5 独立出来，改为最下方**可折叠手风琴**（紫色 ▶/▼ + `MODE B` 徽标，与 QQQ WFO 一致）
-
-**最终布局结构**（对齐后）：
-```
-STEP 1 · 加载历史数据（10年）         ← 卡片
-STEP 2 · 选择策略并回测               ← 卡片
-  [强势轮动] [双动能] [波动率控管]     ← 三策略 Tab
-  参数 + 运行按钮 + 结果               ← 内容区
-▶ 参数全量扫描（一键优化，86种组合）   ← 可折叠，展开后渲染 OptimizePanel
-▶ MODE B  Walk Forward Optimization   ← 可折叠，展开后渲染 WfoPanel
-```
-
-**当前状态**：已 commit `dd07c97` 并推送 Vercel。
+| commit | 内容 |
+|--------|------|
+| `dd07c97` | refactor: ETF 策略步骤结构对齐 QQQ 风格（一键优化/WFO 改为可折叠手风琴）|
+| `5773a48` | feat: 一键优化「应用并回测」打通 Step 2 策略面板 |
+| `652bab2` | docs: handoff.md 标题时间戳补丁 |
+| `781a0b0` | feat: 操作建议信号面板（当前持仓/买入股数/下次检查时间）|
 
 ---
 
-### 进行中：一键优化「应用并回测」打通 Step 2
+### 改动1：ETF 步骤结构对齐 QQQ 风格（`dd07c97`）
 
-**问题**：一键优化完成后，点「应用并回测」没有效果——StrategyRanking 已有 `onApply` prop，但 OptimizePanel 未传入；且各策略 Panel 各管自己的 state，与优化结果不互通。
+**文件**：`src/etf/EtfStrategyTab.jsx`
 
-**解决方案**（对齐 QQQ 成分股轮动做法）：
-1. `EtfStrategyTab` 新增 `pendingOverride` state（`{ params, ts } | null`），`handleApplyAndRun` callback
-2. 每个策略 Panel 接受 `pendingOverride` prop + `useRef` 防重入 + run 函数重构为接受显式参数（绕过 state 异步更新）
-3. `OptimizePanel` 接受 `onApply` prop，透传给 `StrategyRanking`（排名表）和五维最优卡片
-4. 点击时：切换 Tab → 折叠优化面板 → 设置 pendingOverride → Panel 的 useEffect 触发 → 自动填参数 + 运行回测
+ETF 原结构：Step 2 大卡片内有 5 个 Tab（3 策略 + 一键优化 + WFO）。
+对齐后与 QQQ 一致：
 
-**当前进度**：✅ 全部改动完成，已 commit 并推送
+```
+STEP 1 · 加载历史数据（10年）           ← 卡片
+STEP 2 · 选择策略并回测                 ← 卡片（仅保留 3 策略 Tab）
+▶ 参数全量扫描（一键优化，86 种组合）   ← 可折叠手风琴（蓝色 ▶/▼）
+▶ MODE B  Walk Forward Optimization    ← 可折叠手风琴（紫色 ▶/▼ + MODE B 徽标）
+```
 
-**改动文件**：`src/etf/EtfStrategyTab.jsx`（仅此一个文件）
-
-**改动清单**：
-| 位置 | 改动 |
-|------|------|
-| import 行 | 新增 `useEffect` |
-| `MomentumPanel` | 接受 `pendingOverride` prop；`run` 拆为 `runWithParams(p)`（显式参数）+ `run()`；新增 `useEffect` 监听 override |
-| `DualMomentumPanel` | 同上模式 |
-| `VolControlPanel` | 同上模式 |
-| `OptimizePanel` 签名 | 新增 `darkMode, onApply` 参数 |
-| `StrategyRanking` 调用 | 传入 `onApply={onApply}` |
-| 五维最优卡片 | 每张加「应用并回测」按钮（`onApply && ...`） |
-| `EtfStrategyTab` 主组件 | 新增 `pendingOverride` state；新增 `handleApplyAndRun` callback（切 Tab + 折叠优化面板 + 设置 override） |
-| Step 2 Panel 渲染 | 三个 Panel 传入 `pendingOverride={pendingOverride}` |
-| OptimizePanel 渲染 | 传入 `onApply={handleApplyAndRun}` |
-
-**流程**（点击「应用并回测」后）：
-1. `handleApplyAndRun(result)` → 切换到对应 Tab + 折叠优化手风琴 + 设置 `pendingOverride`
-2. 对应 Panel 挂载（或已挂载），`useEffect` 检测到新 ts → 跳过 state 异步，直接用 `runWithParams(p)` 立即运行
-3. 结果展示在 STEP 2 内
-
-**关键防护**：`lastOverrideTs` ref 防止同一次 override 被重复执行（`ts <= lastTs` 则跳过）
+主要变更：新增 `showOpt` / `showWfo` state；STEP 1/2 标题、按钮颜色、进度条渐变对齐 QQQ。
 
 ---
 
-### 进行中：操作建议信号面板（📡 当前操作建议）
+### 改动2：一键优化「应用并回测」打通 Step 2（`5773a48`）
 
-**需求**：每个策略加一个「实时操作建议」卡片，展示：当前应持什么标的 + 为什么 + 买入多少股（按投入金额计算）+ 什么时候该切换
+**文件**：`src/etf/EtfStrategyTab.jsx`
 
-**已完成**（`src/etf/EtfStrategyTab.jsx`）：
-- 新增 `computeSignal(etfData, strategy, params)` 纯函数
-  - 强势轮动：计算最新数据点的动能排名，返回建议持仓/防御资产/排名列表
-  - 双动能：加了均线过滤检查，显示 MA 当前值
-  - 波动率控管：读取最新 VIX/实现波动率，返回 regime + 临界预警
-- 新增 `SignalCard` 组件（显示建议持仓、动能排名、投入金额计算器、下次检查提示、波动率预警）
-- `MOMENTUM_UNIVERSE` / `DUAL_MOMENTUM_UNIVERSE` 加入 import
-- `useMemo` 加入 import
-- 三个策略面板顶部各加 `<SignalCard>`
+**问题**：一键优化/五维最优点「应用并回测」无效，因各策略面板 state 孤立。
 
-**进行中**（`qqq-momentum.jsx`）：
-- QQQ 成分股轮动信号面板 — 基于 `histData` 最新数据点计算当前 Top N
-- 需加在 STEP 1 加载完成后、MODE A 参数区上方
-- 还未写入
+**方案**（与 QQQ 同款）：
+- `EtfStrategyTab` 新增 `pendingOverride: { params, ts }` state + `handleApplyAndRun` callback
+- 三个策略面板：`run` 拆为 `runWithParams(p)`（接受显式参数，绕过 state 异步），+ `useEffect` + `useRef` 防重入监听 override
+- `OptimizePanel` 新增 `onApply` prop → 透传给 `StrategyRanking` 排名表 + 五维最优卡片
 
-**✅ 全部完成**（两个文件均已修改，待 commit）
+**流程**：点击 → 切 Tab + 折叠优化面板 + 设置 pendingOverride → Panel useEffect 触发 → 立即 runWithParams → 结果显示在 STEP 2 ✅
 
-**`qqq-momentum.jsx` 改动**：
-- 在主组件外新增 `QqqSignalCard({ histData, histTs, params, T, darkMode })` 独立组件
-  - `useMemo` 计算当前 Top N 信号（市场过滤 → 成分股打分 → Top N）
-  - 动能排名前10展示（✓ 标记当前持仓）
-  - 投入金额计算器（股数 = 金额 × 权重 / 现价）
-  - 调仓频率提示（日/周/月/季）
-- JSX 中插入 `<QqqSignalCard>` 于 STEP 1 加载完成后、MODE A 参数区之前
+---
 
-**`src/etf/EtfStrategyTab.jsx` 改动**：
-- import 新增 `useMemo`, `MOMENTUM_UNIVERSE`, `DUAL_MOMENTUM_UNIVERSE`
-- 新增 `computeSignal(etfData, strategy, params)` 纯函数（三个策略分支）
-- 新增 `SignalCard` 组件（建议持仓 + 信号依据 + 动能排名 + 波动率预警 + 金额计算器 + 下次检查提示）
-- 三个策略面板（MomentumPanel / DualMomentumPanel / VolControlPanel）顶部各加 `<SignalCard>`
+### 改动3：操作建议信号面板（`781a0b0`）
 
-**信号面板功能一览**：
+**文件**：`src/etf/EtfStrategyTab.jsx`、`qqq-momentum.jsx`
+
+每个策略加载数据后、参数区上方出现 **「📡 当前操作建议」** 卡片，实时按当前参数计算：
+
 | 功能 | 强势轮动 | 双动能 | 波动率控管 | QQQ成分股 |
 |------|---------|--------|-----------|----------|
-| 当前建议持仓 | ✅ | ✅ | ✅ | ✅ |
-| 信号依据说明 | ✅ | ✅（含MA值）| ✅（VIX/实现波动率值）| ✅ |
-| 动能排名 | ✅ 前6 | ✅ 前6 | — | ✅ 前10 |
-| 波动率临界预警 | — | — | ✅ | — |
-| 投入金额→股数 | ✅ | ✅ | ✅ | ✅ |
-| 下次检查提示 | 月调仓 | 月调仓 | 每日 | 随参数变 |
+| 当前建议持仓 + 现价 | ✅ | ✅ | ✅ | ✅ |
+| 信号依据说明 | ✅ | ✅（含 MA 当前值）| ✅（VIX / 实现波动率数值）| ✅ |
+| 动能排名（✓ 标记持仓）| ✅ 前6 | ✅ 前6 | — | ✅ 前10 |
+| 波动率临界预警 | — | — | ✅（距阈值 12% 内触发）| — |
+| 市场过滤触发提示 | — | — | — | ✅ |
+| 投入金额 → 股数计算 | ✅ | ✅ | ✅ | ✅ |
+| 下次检查时间提示 | 月调仓 | 月调仓 | 每日 | 随参数变 |
+
+**新增函数 / 组件**：
+- `computeSignal(etfData, strategy, params)` — 纯函数，基于最新数据点，参数变化即时更新（`useMemo` 驱动）
+- `SignalCard` — ETF 策略信号展示组件
+- `QqqSignalCard` — QQQ 成分股轮动信号展示组件（主组件外独立函数）
 
 ---
 
