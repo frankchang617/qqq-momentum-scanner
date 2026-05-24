@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 8（回测执行逻辑修复）
+更新时间：2026-05-24 Session 8（回测修复 + 一键优化「应用并回测」按钮）
 
 ## 项目结构
 
@@ -25,6 +25,14 @@ src/qqq/                      # QQQ 轮转策略模块（本 Session 新建，�
 **问题**：`portfolioBacktest()` 中首个调仓日（`t === simStart`）的 Step 3（新持仓日内收益 open→close）被条件 `t > simStart` 跳过，导致建仓当天的日内收益遗漏。
 
 **修复**：`qqq-momentum.jsx:671`，将条件改为 `holdings.size > 0`，首日建仓同样计算日内收益。
+
+### 一键优化「应用并回测」按钮（`QqqRotationTab.jsx`）
+
+- Step 2 结果表格每行末尾新增「应用并回测」按钮
+- 点击按钮：参数同步写入 Step 1 选择器，并**立即自动运行回测**（不依赖 state 更新时序）
+- 新增 `handleApplyAndBacktest(rowParams)` 函数，直接用传入参数调用回测引擎
+- 点击行本身仍只载入参数（不自动回测），两种交互共存
+- 底部提示文字同步更新
 
 ---
 

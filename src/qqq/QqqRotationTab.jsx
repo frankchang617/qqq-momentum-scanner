@@ -157,6 +157,27 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     }, 50);
   }, [histData, histTs, params]);
 
+  // ── 应用参数并立即运行回测（Step 2 表格行按钮用）──
+  const handleApplyAndBacktest = useCallback((rowParams) => {
+    setParams({ ...rowParams });
+    setBtRunning(true);
+    setBtResult(null);
+    setTimeout(() => {
+      try {
+        const bt = backtestQqqRotation(histData, histTs, rowParams);
+        if (!bt) { setBtRunning(false); return; }
+        const metrics = calcMetrics(bt.equityCurve, bt.timestamps);
+        if (!metrics) { setBtRunning(false); return; }
+        const qqqCloses = histData.get('__QQQ__')?.closes ?? histData.get('__QQQ__');
+        const startOffset = histTs.indexOf(bt.timestamps[0]);
+        const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
+        const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
+        setBtResult({ ...bt, metrics, qqqEq, qqqMetrics });
+      } catch (e) { console.error('QQQ rotation backtest error:', e); }
+      setBtRunning(false);
+    }, 50);
+  }, [histData, histTs]);
+
   // ── 运行网格搜索 ──
   const handleRunGridSearch = useCallback(async () => {
     setGsRunning(true);
@@ -501,8 +522,8 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 11 }}>
                 <thead>
                   <tr style={{ background: T.pageBg }}>
-                    {['排名', '参数组合', '夏普', 'CAGR', 'MDD', '总收益', `$${(parseFloat(investAmount)||10000).toLocaleString()} → 最终金额`, '综合评分'].map((h, i) => (
-                      <th key={i} style={{ padding: '6px 10px', textAlign: i <= 1 ? 'left' : 'right', fontWeight: 600, color: T.textSub, borderBottom: `1px solid ${T.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                    {['排名', '参数组合', '夏普', 'CAGR', 'MDD', '总收益', `$${(parseFloat(investAmount)||10000).toLocaleString()} → 最终金额`, '综合评分', '操作'].map((h, i) => (
+                      <th key={i} style={{ padding: '6px 10px', textAlign: i <= 1 || i === 8 ? 'left' : 'right', fontWeight: 600, color: T.textSub, borderBottom: `1px solid ${T.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -541,6 +562,20 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                         <td style={{ padding: '5px 10px', textAlign: 'right', color: T.textSub, borderBottom: `1px solid ${T.border}44` }}>
                           {(r.compositeScore * 100).toFixed(0)}
                         </td>
+                        <td style={{ padding: '5px 8px', borderBottom: `1px solid ${T.border}44` }}>
+                          <button
+                            onClick={e => { e.stopPropagation(); handleApplyAndBacktest(r.params); }}
+                            style={{
+                              padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+                              fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+                              background: darkMode ? '#004488' : '#0055cc',
+                              border: '1px solid #4488ee', color: '#fff',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            应用并回测
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -548,7 +583,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
               </table>
             </div>
             <div style={{ fontSize: 10, color: T.textMuted, marginTop: 6 }}>
-              点击任意行可将该参数加载到 Step 1 手动回测
+              点击「应用并回测」→ 参数载入 Step 1 并立即运行回测 · 点击任意行仅载入参数
             </div>
           </div>
         )}
