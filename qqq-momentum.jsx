@@ -833,6 +833,166 @@ function runWFO(histData, commonTs, qqqCloses, optMetric='sharpe') {
   };
 }
 
+// ══════════════════════════════════════════
+//  QQQ 成分股轮动 — 当前操作建议卡片
+// ══════════════════════════════════════════
+function QqqSignalCard({ histData, histTs, params, T, darkMode }) {
+  const [capital, setCapital] = useState('10000');
+
+  const signal = useMemo(() => {
+    if (!histData || !histTs || histTs.length === 0) return null;
+    const { sortMetric='score', topN=5, rebalanceFreq='monthly', marketFilter='none' } = params;
+    const N   = histTs.length;
+    const d   = N - 1;
+    const date = new Date(histTs[d] * 1000).toISOString().slice(0, 10);
+    const qqqCloses = histData.get('__QQQ__');
+
+    // 市场过滤
+    const maDays = marketFilter==='ma50'?50 : marketFilter==='ma100'?100 : marketFilter==='ma200'?200 : 0;
+    if (maDays > 0 && d >= maDays && qqqCloses) {
+      const slice = qqqCloses.slice(d - maDays, d).filter(Boolean);
+      const ma = slice.length > 0 ? slice.reduce((a,b)=>a+b,0)/slice.length : null;
+      const qqqNow = qqqCloses[d];
+      if (ma != null && qqqNow != null && qqqNow <= ma) {
+        return { date, isDefensive: true, holdings: {}, prices: {},
+          reason: `QQQ（$${qqqNow.toFixed(1)}）低于 MA${maDays}（$${ma.toFixed(1)}），市场过滤触发 → 转现金`,
+          scores: [], rebalFreq: rebalanceFreq, qqqPrice: qqqNow };
+      }
+    }
+
+    // 对成分股打分
+    const symbols = [...histData.keys()].filter(k => k !== '__QQQ__');
+    const ranked = symbols.map(sym => {
+      const c = histData.get(sym);
+      if (!c || !c[d]) return null;
+      let score = null;
+      if (sortMetric==='ret20'  && d>=20  && c[d-20])  score=(c[d]-c[d-20])/c[d-20];
+      else if (sortMetric==='ret50'  && d>=50  && c[d-50])  score=(c[d]-c[d-50])/c[d-50];
+      else if (sortMetric==='ret200' && d>=200 && c[d-200]) score=(c[d]-c[d-200])/c[d-200];
+      else if (sortMetric==='score'  && d>=200 && c[d-20] && c[d-50] && c[d-200]) {
+        score=(c[d]-c[d-20])/c[d-20]*0.45 + (c[d]-c[d-50])/c[d-50]*0.35 + (c[d]-c[d-200])/c[d-200]*0.20;
+      }
+      return score!=null ? { sym, score, price: c[d] } : null;
+    }).filter(Boolean).sort((a,b)=>b.score-a.score);
+
+    const top = ranked.slice(0, topN);
+    const scoreLabel = {score:'综合评分',ret20:'20日涨幅',ret50:'50日涨幅',ret200:'200日涨幅'}[sortMetric]||sortMetric;
+    const rfLabel = {daily:'每日',weekly:'每周',monthly:'每月',quarterly:'每季'}[rebalanceFreq]||rebalanceFreq;
+
+    return { date, isDefensive: false,
+      holdings: Object.fromEntries(top.map(r=>[r.sym, 1/topN])),
+      prices:   Object.fromEntries(top.map(r=>[r.sym, r.price])),
+      scores: ranked.slice(0, 10),
+      reason: `按${scoreLabel}排名，等权持有前 ${top.length} 只（${rfLabel}调仓）`,
+      rebalFreq: rebalanceFreq,
+      qqqPrice: qqqCloses?.[d],
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [histData, histTs, JSON.stringify(params)]);
+
+  if (!signal) return null;
+  const cap = parseFloat(capital) || 0;
+  const borderColor = signal.isDefensive ? '#e8883a' : '#4fc86e';
+
+  return (
+    <div style={{ padding:'14px 18px', background: darkMode?'#0d1f10':'#f0faf2',
+      border:`1px solid ${T.border}`, borderLeft:`4px solid ${borderColor}`,
+      borderRadius:8, marginBottom:20 }}>
+
+      {/* 标题行 */}
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+        <span style={{fontSize:12,fontWeight:700,color:T.textBright}}>📡 当前操作建议</span>
+        <span style={{fontSize:10,color:T.textMuted}}>{signal.date}</span>
+        <span style={{marginLeft:'auto',fontSize:11,fontWeight:700,
+          color: signal.isDefensive?'#e8883a':'#4fc86e'}}>
+          {signal.isDefensive ? '⚠️ 市场过滤触发，转现金' : `🟢 持仓 Top ${Object.keys(signal.holdings).length}`}
+        </span>
+      </div>
+
+      {/* 信号依据 */}
+      <div style={{fontSize:11,color:T.textSub,marginBottom:12,lineHeight:1.6}}>{signal.reason}</div>
+
+      {/* 当前 Top N 持仓标的 */}
+      {!signal.isDefensive && signal.scores.length > 0 && (
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:T.textMuted,marginBottom:6}}>
+            当前排名（前10），✓ 为建议持仓
+          </div>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {signal.scores.map(({sym,score},i)=>{
+              const isIn = signal.holdings[sym]!=null;
+              return (
+                <div key={sym} style={{
+                  padding:'3px 10px', borderRadius:4, fontSize:10, fontFamily:'monospace',
+                  fontWeight: isIn?700:400,
+                  background: score>=0?'#4fc86e11':'#ee444411',
+                  border:`1px solid ${isIn ? borderColor : (score>=0?'#4fc86e44':'#ee444433')}`,
+                  color: score>=0?'#4fc86e':'#ee4444',
+                }}>
+                  #{i+1} {sym} {score>=0?'+':''}{(score*100).toFixed(1)}%{isIn&&<span style={{color:borderColor}}> ✓</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 投入金额计算器 */}
+      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
+          <span style={{fontSize:11,color:T.textMuted}}>💰 按投入金额计算：</span>
+          <div style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{fontSize:12,color:T.textMuted}}>$</span>
+            <input type="number" value={capital} onChange={e=>setCapital(e.target.value)}
+              style={{width:100,padding:'3px 8px',background:T.inputBg,
+                border:`1px solid ${T.borderSub||T.border}`,borderRadius:4,
+                color:T.text,fontFamily:'inherit',fontSize:12}}/>
+          </div>
+        </div>
+
+        {signal.isDefensive ? (
+          <div style={{fontSize:12,color:'#e8883a',padding:'8px 12px',background:'#e8883a14',
+            borderRadius:6,border:'1px solid #e8883a33'}}>
+            ⚠️ 当前不建议建仓，持现金 ${cap.toLocaleString('en-US',{maximumFractionDigits:0})} 等待市场恢复
+          </div>
+        ) : (
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            {Object.entries(signal.holdings).map(([sym,w])=>{
+              const amt = cap*w;
+              const price = signal.prices[sym];
+              const shares = price&&price>0 ? amt/price : null;
+              return (
+                <div key={sym} style={{padding:'8px 14px',borderRadius:6,minWidth:160,
+                  background:T.cardBg,border:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textBright,marginBottom:3}}>
+                    📈 买入 {sym}
+                  </div>
+                  <div style={{fontSize:14,color:'#4488ee',fontFamily:'monospace',fontWeight:700}}>
+                    ${amt.toLocaleString('en-US',{maximumFractionDigits:0})}
+                  </div>
+                  {shares!=null&&(
+                    <div style={{fontSize:10,color:T.textMuted,marginTop:2}}>
+                      ≈ {shares.toFixed(2)} 股 @ ${price.toFixed(2)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 下次检查提示 */}
+      <div style={{marginTop:12,fontSize:10,color:T.textVMuted}}>
+        {signal.rebalFreq==='daily'   && '⏰ 每日调仓：每个交易日收盘后检查排名，有变化则次日调整'}
+        {signal.rebalFreq==='weekly'  && '⏰ 每周调仓：每 5 个交易日检查一次，信号不变则持仓不动'}
+        {signal.rebalFreq==='monthly' && '⏰ 月调仓：每 21 个交易日（约 1 个月）检查一次，信号不变无需操作'}
+        {signal.rebalFreq==='quarterly'&&'⏰ 季调仓：每 63 个交易日（约 3 个月）检查一次'}
+      </div>
+    </div>
+  );
+}
+
 // ── 主组件 ──
 export default function App() {
   // 扫描器状态
@@ -1452,6 +1612,11 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* 当前操作建议（信号面板） */}
+          {histData&&(
+            <QqqSignalCard histData={histData} histTs={histTs} params={stratParams} T={T} darkMode={darkMode}/>
+          )}
 
           {/* Mode A · Fixed Parameter Backtest（固定参数回测） */}
           {histData&&(

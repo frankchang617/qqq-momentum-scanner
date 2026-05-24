@@ -10,14 +10,14 @@
  *   - 每个策略有独立的 params / result state
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 
 // 数据层
 import { fetchEtfData, ETF_SYMBOLS } from './data/fetchEtfData.js';
 
 // 策略回测
-import { backtestMomentum, MOMENTUM_PARAM_GRID } from './strategies/momentum.js';
-import { backtestDualMomentum, DUAL_MOMENTUM_PARAM_GRID } from './strategies/dualMomentum.js';
+import { backtestMomentum, MOMENTUM_PARAM_GRID, MOMENTUM_UNIVERSE } from './strategies/momentum.js';
+import { backtestDualMomentum, DUAL_MOMENTUM_PARAM_GRID, DUAL_MOMENTUM_UNIVERSE } from './strategies/dualMomentum.js';
 import { backtestVolControl, getVolControlParams } from './strategies/volControl.js';
 import { calcMetrics, calcBenchmark } from './strategies/metrics.js';
 
@@ -39,6 +39,259 @@ const fmtPct = (v, d = 1) =>
   v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
 const fmtNum = (v, d = 2) =>
   v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(d);
+
+// ══════════════════════════════════════════
+//  当前信号计算（基于最新数据点，纯函数）
+// ══════════════════════════════════════════
+function computeSignal(etfData, strategy, params) {
+  if (!etfData) return null;
+  const N = etfData.timestamps.length;
+  if (N < 2) return null;
+  const sigIdx = N - 1;
+  const date = new Date(etfData.timestamps[sigIdx] * 1000).toISOString().slice(0, 10);
+
+  // ── 强势轮动 ──
+  if (strategy === 'momentum') {
+    const { lookback = 63, topN = 1, defensiveAsset = 'SHY' } = params;
+    if (sigIdx < lookback) return null;
+    const scores = MOMENTUM_UNIVERSE.map(sym => {
+      const arr = etfData.closes[sym];
+      if (!arr || arr[sigIdx] == null || arr[sigIdx - lookback] == null) return null;
+      return { sym, ret: arr[sigIdx] / arr[sigIdx - lookback] - 1, price: arr[sigIdx] };
+    }).filter(Boolean).sort((a, b) => b.ret - a.ret);
+
+    const defResult = (reason) => {
+      const defPrice = etfData.closes[defensiveAsset]?.[sigIdx] ?? null;
+      return { date, strategy, isDefensive: true, scores: scores.slice(0, 6),
+        holdings: defensiveAsset === 'CASH' ? { CASH: 1 } : { [defensiveAsset]: 1 },
+        prices: defensiveAsset === 'CASH' ? {} : { [defensiveAsset]: defPrice },
+        reason, rebalFreq: 'monthly' };
+    };
+    if (scores.length === 0 || scores.every(s => s.ret < 0))
+      return defResult('所有 ETF 动能均为负，切换防御资产');
+    const chosen = scores.slice(0, topN).filter(s => s.ret >= 0);
+    if (chosen.length === 0) return defResult('前 TopN 中无正动能 ETF，切换防御资产');
+    const w = 1 / chosen.length;
+    return { date, strategy, isDefensive: false, scores: scores.slice(0, 6),
+      holdings: Object.fromEntries(chosen.map(c => [c.sym, w])),
+      prices: Object.fromEntries(chosen.map(c => [c.sym, c.price])),
+      reason: `${chosen.map(c => c.sym).join(' / ')} 动能最强（前 ${chosen.length} 名，均为正动能）`,
+      rebalFreq: 'monthly' };
+  }
+
+  // ── 双动能 ──
+  if (strategy === 'dual') {
+    const { lookback = 126, maFilter = 200, defensiveAsset = 'SHY' } = params;
+    if (sigIdx < Math.max(lookback, maFilter)) return null;
+    const scores = DUAL_MOMENTUM_UNIVERSE.map(sym => {
+      const arr = etfData.closes[sym];
+      if (!arr || arr[sigIdx] == null || arr[sigIdx - lookback] == null) return null;
+      return { sym, ret: arr[sigIdx] / arr[sigIdx - lookback] - 1, price: arr[sigIdx] };
+    }).filter(Boolean).sort((a, b) => b.ret - a.ret);
+
+    const defResult = (reason) => {
+      const defPrice = etfData.closes[defensiveAsset]?.[sigIdx] ?? null;
+      return { date, strategy, isDefensive: true, scores: scores.slice(0, 6),
+        holdings: defensiveAsset === 'CASH' ? { CASH: 1 } : { [defensiveAsset]: 1 },
+        prices: defensiveAsset === 'CASH' ? {} : { [defensiveAsset]: defPrice },
+        reason, rebalFreq: 'monthly' };
+    };
+    const best = scores[0];
+    if (!best || best.ret < 0)
+      return defResult(`最强 ETF (${best?.sym ?? '—'}) 动能为负 (${best ? (best.ret*100).toFixed(1)+'%' : '—'})，切防御`);
+
+    // 均线过滤
+    const arr = etfData.closes[best.sym];
+    const slice = arr.slice(Math.max(0, sigIdx - maFilter + 1), sigIdx + 1).filter(v => v != null);
+    const ma = slice.length >= Math.round(maFilter * 0.9) ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
+    if (ma != null && arr[sigIdx] < ma)
+      return defResult(`${best.sym} 收盘 $${arr[sigIdx].toFixed(2)} 低于 MA${maFilter}（$${ma.toFixed(2)}），切防御`);
+
+    return { date, strategy, isDefensive: false, scores: scores.slice(0, 6),
+      holdings: { [best.sym]: 1 },
+      prices: { [best.sym]: best.price },
+      reason: `${best.sym} 相对动能最强（${(best.ret*100).toFixed(1)}%），高于 MA${maFilter}（$${ma?.toFixed(2) ?? '—'}）`,
+      maVal: ma, maFilter,
+      rebalFreq: 'monthly' };
+  }
+
+  // ── 波动率控管 ──
+  if (strategy === 'volControl') {
+    const { volSource = 'REALIZED', lowThreshold = 20, highThreshold = 30, defensiveAsset = 'SHY' } = params;
+    let vol = null;
+    if (volSource === 'VIX') {
+      for (let i = sigIdx; i >= Math.max(0, sigIdx - 5); i--) {
+        if (etfData.vix?.[i] != null) { vol = etfData.vix[i]; break; }
+      }
+    } else {
+      vol = etfData.qqqVol20?.[sigIdx] ?? null;
+    }
+    const volLabel = volSource === 'VIX' ? 'VIX' : 'QQQ 20日实现波动率';
+    let regime, regimeName, regimeColor;
+    if (vol == null)            { regime = 'full';      regimeName = '满仓（数据缺失，默认）'; regimeColor = '#4fc86e'; }
+    else if (vol < lowThreshold){ regime = 'full';      regimeName = '满仓进攻';               regimeColor = '#4fc86e'; }
+    else if (vol <= highThreshold){ regime = 'half';    regimeName = '半仓防守';               regimeColor = '#e8883a'; }
+    else                        { regime = 'defensive'; regimeName = '全仓防御';               regimeColor = '#ee4444'; }
+
+    const def = defensiveAsset === 'CASH' ? 'CASH' : (etfData.closes[defensiveAsset] ? defensiveAsset : 'CASH');
+    const holdings = regime === 'full' ? { QQQ: 1 }
+      : regime === 'half' ? { QQQ: 0.5, [def]: 0.5 }
+      : def === 'CASH' ? { CASH: 1 } : { [def]: 1 };
+    const prices = {};
+    Object.keys(holdings).filter(s => s !== 'CASH').forEach(sym => {
+      prices[sym] = etfData.closes[sym]?.[sigIdx] ?? null;
+    });
+    const warnHigh = vol != null && regime !== 'defensive' && vol > highThreshold * 0.88;
+    const warnLow  = vol != null && regime !== 'full'      && vol < lowThreshold * 1.12;
+    return { date, strategy, isDefensive: regime === 'defensive',
+      holdings, prices, vol, volLabel, regime, regimeName, regimeColor,
+      warnHigh, warnLow, lowThreshold, highThreshold,
+      reason: vol != null ? `${volLabel}：${vol.toFixed(1)}%` : `${volLabel}：无数据`,
+      rebalFreq: 'daily' };
+  }
+  return null;
+}
+
+// ── 当前操作建议卡片 ──
+function SignalCard({ etfData, strategy, params, T }) {
+  const [capital, setCapital] = useState('10000');
+  const signal = useMemo(
+    () => computeSignal(etfData, strategy, params),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [etfData, strategy, JSON.stringify(params)]
+  );
+  if (!signal) return null;
+
+  const cap = parseFloat(capital) || 0;
+  const borderColor = signal.isDefensive ? '#e8883a' : signal.regimeColor || '#4fc86e';
+  const stateLabel  = signal.isDefensive ? '⚠️ 防御模式' : (signal.regime === 'half' ? '⚡ 半仓' : '🟢 进攻模式');
+
+  return (
+    <div style={{
+      background: T.cardBg2, border: `1px solid ${T.border}`,
+      borderLeft: `4px solid ${borderColor}`,
+      borderRadius: 8, padding: '14px 18px', marginBottom: 20,
+    }}>
+      {/* 标题行 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.textBright }}>📡 当前操作建议</span>
+        <span style={{ fontSize: 10, color: T.textMuted }}>{signal.date}</span>
+        <span style={{
+          marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: borderColor,
+        }}>{stateLabel}</span>
+      </div>
+
+      {/* 建议持仓 */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: T.textMuted, whiteSpace: 'nowrap' }}>建议持仓：</span>
+        {Object.entries(signal.holdings).map(([sym, w]) => (
+          <div key={sym} style={{
+            padding: '4px 14px', borderRadius: 20, fontWeight: 700, fontSize: 12,
+            background: sym === 'CASH' ? '#88888822' : `${borderColor}22`,
+            border: `1px solid ${sym === 'CASH' ? '#888' : borderColor}`,
+            color: sym === 'CASH' ? T.textMuted : borderColor,
+          }}>
+            {sym === 'CASH' ? '现金' : sym} {(w * 100).toFixed(0)}%
+            {signal.prices?.[sym] != null && (
+              <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 5, color: T.textMuted }}>
+                ~${signal.prices[sym].toFixed(2)}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* 信号依据 */}
+      <div style={{ fontSize: 11, color: T.textSub, marginBottom: 10, lineHeight: 1.6 }}>
+        {signal.reason}
+      </div>
+
+      {/* 波动率预警 */}
+      {signal.warnHigh && (
+        <div style={{ fontSize: 11, color: '#ee4444', background: '#ee444414', border: '1px solid #ee444433',
+          borderRadius: 5, padding: '5px 10px', marginBottom: 8 }}>
+          🔔 波动率接近高阈值 {signal.highThreshold}%，若突破则次日切全仓防御
+        </div>
+      )}
+      {signal.warnLow && (
+        <div style={{ fontSize: 11, color: '#e8883a', background: '#e8883a14', border: '1px solid #e8883a33',
+          borderRadius: 5, padding: '5px 10px', marginBottom: 8 }}>
+          🔔 波动率接近低阈值 {signal.lowThreshold}%，若跌破则次日可恢复满仓 QQQ
+        </div>
+      )}
+
+      {/* 动能排名（强势轮动/双动能专用） */}
+      {signal.scores?.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 5 }}>动能排名</div>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+            {signal.scores.map(({ sym, ret }, i) => {
+              const isChosen = signal.holdings[sym] != null;
+              return (
+                <div key={sym} style={{
+                  padding: '3px 10px', borderRadius: 4, fontSize: 10,
+                  fontFamily: 'monospace', fontWeight: isChosen ? 700 : 400,
+                  background: ret >= 0 ? '#4fc86e11' : '#ee444411',
+                  border: `1px solid ${isChosen ? borderColor : (ret >= 0 ? '#4fc86e44' : '#ee444433')}`,
+                  color: ret >= 0 ? '#4fc86e' : '#ee4444',
+                }}>
+                  #{i + 1} {sym} {ret >= 0 ? '+' : ''}{(ret * 100).toFixed(1)}%
+                  {isChosen && <span style={{ color: borderColor }}> ✓</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 买入金额计算器 */}
+      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, marginTop: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: T.textMuted }}>💰 按投入金额计算：</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12, color: T.textMuted }}>$</span>
+            <input type="number" value={capital} onChange={e => setCapital(e.target.value)}
+              style={{ width: 100, padding: '3px 8px', background: T.inputBg,
+                border: `1px solid ${T.borderSub || T.border}`, borderRadius: 4,
+                color: T.text, fontFamily: 'inherit', fontSize: 12 }} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {Object.entries(signal.holdings).map(([sym, w]) => {
+            const amt = cap * w;
+            const price = signal.prices?.[sym];
+            const shares = price && price > 0 ? (amt / price) : null;
+            return (
+              <div key={sym} style={{
+                padding: '8px 14px', borderRadius: 6, minWidth: 170,
+                background: T.cardBg, border: `1px solid ${T.border}`,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textBright, marginBottom: 3 }}>
+                  {sym === 'CASH' ? '🏦 持有现金（不操作）' : `📈 买入 ${sym}`}
+                </div>
+                <div style={{ fontSize: 14, color: '#4488ee', fontFamily: 'monospace', fontWeight: 700 }}>
+                  ${amt.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                </div>
+                {shares != null && (
+                  <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>
+                    ≈ {shares.toFixed(2)} 股 @ ${price.toFixed(2)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 下次检查提示 */}
+      <div style={{ marginTop: 12, fontSize: 10, color: T.textVMuted || T.textMuted }}>
+        {signal.rebalFreq === 'daily'
+          ? '⏰ 每个交易日收盘后检查波动率，档位变化则次日调仓；无变化则持仓不动'
+          : '⏰ 月调仓策略：每 21 个交易日（约 1 个月）检查一次，信号不变则无需操作'}
+      </div>
+    </div>
+  );
+}
 
 function MetricCard({ label, value, fmt = 'pct', alwaysRed = false, T }) {
   const display = fmt === 'pct' ? fmtPct(value) : fmtNum(value);
@@ -197,6 +450,7 @@ function MomentumPanel({ etfData, T, pendingOverride }) {
 
   return (
     <div>
+      <SignalCard etfData={etfData} strategy="momentum" params={params} T={T} />
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
         每月从 <strong style={{ color: T.textBright }}>QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM / SOXX</strong> 中选动能最强的 ETF 持有。
         所有 ETF 动能均为负时切换防御资产。
@@ -294,6 +548,7 @@ function DualMomentumPanel({ etfData, T, pendingOverride }) {
 
   return (
     <div>
+      <SignalCard etfData={etfData} strategy="dual" params={params} T={T} />
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
         选最强 ETF，并确认其价格高于均线（趋势过滤）。跌破均线改持防御资产。
       </div>
@@ -401,6 +656,7 @@ function VolControlPanel({ etfData, T, pendingOverride }) {
 
   return (
     <div>
+      <SignalCard etfData={etfData} strategy="volControl" params={params} T={T} />
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
         根据市场波动率动态调整 QQQ 仓位：低波动满仓，中波动半仓，高波动切防御。
       </div>

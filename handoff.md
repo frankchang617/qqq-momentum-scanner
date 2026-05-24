@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 3（ETF 步骤结构对齐 QQQ + 一键优化「应用并回测」打通 Step 2）
+更新时间：2026-05-24 Session 3（ETF 步骤对齐 + 应用并回测 + 操作建议信号面板 ✅）
 
 ## 项目结构
 
@@ -364,6 +364,53 @@ STEP 2 · 选择策略并回测               ← 卡片
 3. 结果展示在 STEP 2 内
 
 **关键防护**：`lastOverrideTs` ref 防止同一次 override 被重复执行（`ts <= lastTs` 则跳过）
+
+---
+
+### 进行中：操作建议信号面板（📡 当前操作建议）
+
+**需求**：每个策略加一个「实时操作建议」卡片，展示：当前应持什么标的 + 为什么 + 买入多少股（按投入金额计算）+ 什么时候该切换
+
+**已完成**（`src/etf/EtfStrategyTab.jsx`）：
+- 新增 `computeSignal(etfData, strategy, params)` 纯函数
+  - 强势轮动：计算最新数据点的动能排名，返回建议持仓/防御资产/排名列表
+  - 双动能：加了均线过滤检查，显示 MA 当前值
+  - 波动率控管：读取最新 VIX/实现波动率，返回 regime + 临界预警
+- 新增 `SignalCard` 组件（显示建议持仓、动能排名、投入金额计算器、下次检查提示、波动率预警）
+- `MOMENTUM_UNIVERSE` / `DUAL_MOMENTUM_UNIVERSE` 加入 import
+- `useMemo` 加入 import
+- 三个策略面板顶部各加 `<SignalCard>`
+
+**进行中**（`qqq-momentum.jsx`）：
+- QQQ 成分股轮动信号面板 — 基于 `histData` 最新数据点计算当前 Top N
+- 需加在 STEP 1 加载完成后、MODE A 参数区上方
+- 还未写入
+
+**✅ 全部完成**（两个文件均已修改，待 commit）
+
+**`qqq-momentum.jsx` 改动**：
+- 在主组件外新增 `QqqSignalCard({ histData, histTs, params, T, darkMode })` 独立组件
+  - `useMemo` 计算当前 Top N 信号（市场过滤 → 成分股打分 → Top N）
+  - 动能排名前10展示（✓ 标记当前持仓）
+  - 投入金额计算器（股数 = 金额 × 权重 / 现价）
+  - 调仓频率提示（日/周/月/季）
+- JSX 中插入 `<QqqSignalCard>` 于 STEP 1 加载完成后、MODE A 参数区之前
+
+**`src/etf/EtfStrategyTab.jsx` 改动**：
+- import 新增 `useMemo`, `MOMENTUM_UNIVERSE`, `DUAL_MOMENTUM_UNIVERSE`
+- 新增 `computeSignal(etfData, strategy, params)` 纯函数（三个策略分支）
+- 新增 `SignalCard` 组件（建议持仓 + 信号依据 + 动能排名 + 波动率预警 + 金额计算器 + 下次检查提示）
+- 三个策略面板（MomentumPanel / DualMomentumPanel / VolControlPanel）顶部各加 `<SignalCard>`
+
+**信号面板功能一览**：
+| 功能 | 强势轮动 | 双动能 | 波动率控管 | QQQ成分股 |
+|------|---------|--------|-----------|----------|
+| 当前建议持仓 | ✅ | ✅ | ✅ | ✅ |
+| 信号依据说明 | ✅ | ✅（含MA值）| ✅（VIX/实现波动率值）| ✅ |
+| 动能排名 | ✅ 前6 | ✅ 前6 | — | ✅ 前10 |
+| 波动率临界预警 | — | — | ✅ | — |
+| 投入金额→股数 | ✅ | ✅ | ✅ | ✅ |
+| 下次检查提示 | 月调仓 | 月调仓 | 每日 | 随参数变 |
 
 ---
 
