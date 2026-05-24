@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24（修复运行回测全部为0的根本原因）
+更新时间：2026-05-24（WFO 逻辑重写 + Mode A/B 双模式 + 参数网格 448 种）
 
 ## 项目结构
 
@@ -66,11 +66,11 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 #### Step 2 · 策略参数
 | 参数 | 选项 |
 |------|------|
-| 排名指标 | 综合评分 / 20日 / 50日 / 200日 |
-| 持仓数量 | Top 5 / 10 / 20 |
-| 调仓频率 | 每周（5日）/ 每月（21日）|
-| 缓冲换股 | 进 Top N 买入，跌出 Top 1.5N 才卖 |
-| QQQ均线滤网 | QQQ 跌破 200 日均线时全部转现金 |
+| 动能回看期 | 综合评分 / 20日 / 50日 / 200日 |
+| 持仓数量 TopN | Top 3/5/10/15/20/25/30 |
+| 调仓频率 | 每日（1日）/ 每周（5日）/ 每月（21日）/ 每季（63日）|
+| 市场过滤 | 不过滤 / QQQ>MA50 / QQQ>MA100 / QQQ>MA200 |
+| Grid Search 参数组合数 | 4×7×4×4 = 448 种 |
 
 #### 绩效面板（策略 vs QQQ）
 - 指标卡：CAGR、Sharpe Ratio、最大回撤 MDD、累积收益、换股次数
@@ -79,15 +79,18 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 - 年度收益柱状图（策略蓝 vs QQQ 灰）
 - 月度收益热图（绿/红色阶）
 
-#### 一键优化（96 种参数组合）
-- 遍历：排名×4 × Top N×3 × 频率×2 × 缓冲×2 × 均线×2 = 96 种
+#### 参数全量扫描（Grid Search，448 种参数组合）
+- 遍历：动能回看期×4 × TopN×7 × 调仓频率×4 × 市场过滤×4 = 448 种（全量历史数据）
+- ⚠️ 全量数据上选参存在过拟合风险，仅用于探索，无偏验证请用 Mode B WFO
 - 输出前 5 名：Sharpe 最高 / CAGR 最高 / MDD 最低 / CAGR/MDD 最优
-- 点「应用」直接填回参数区
+- 点「应用并回测」直接填回 Mode A 参数区
 
-#### Walk Forward Optimization
-- 自动按数据长度决定窗口：≥4年 → 3年 in-sample + 1年 out-sample；2-4年 → 按 60%/20% 比例
-- 逐窗口：in-sample 跑 96 组优化找最佳参数 → out-sample 验证
-- 串接所有 out-sample 画净值曲线，汇总 CAGR/Sharpe/MDD vs QQQ
+#### Walk Forward Optimization（重写后的正确逻辑）
+- **窗口设计**：70% in-sample / 30% out-of-sample，按 OOS 步长滚动（数据自适应）
+- **正确流程**：① in-sample 跑 Grid Search(448种) → ② 按 optMetric 选最佳参数 → ③ 固定参数跑 OOS → ④ 只记录 OOS 绩效，不重新选参 → ⑤ 串接所有 OOS 得总绩效
+- **严格约束**：OOS 结果不参与任何参数选择，不显示"OOS 最佳参数"
+- **optMetric 可选**：Sharpe（推荐）/ CAGR / Calmar(CAGR/MDD)
+- **窗口明细表**：显示 in-sample 时间、OOS 时间、in-sample 选出的参数（TopN/动能回看/调仓频率/市场过滤）、IS 评分、OOS CAGR/Sharpe/MDD/总收益
 
 #### 量化正确性保证
 - **无未来数据**：排名用 T-1 收盘，交易用 T 收盘（日线数据无 T+1 开盘时的标准近似）
@@ -113,6 +116,20 @@ Yahoo Finance 会封锁 AWS/Vercel Lambda 的数据中心 IP，Cloudflare 边缘
 ### 展开行（点击任意股票）
 - 200日价格走势大图
 - 9格指标卡：20/50/200D 涨幅、波动率、夏普、综合得分、现价
+
+#### 资金模拟
+
+- **策略回测**：MetricCard 下方「起始资金」输入框，实时显示「策略最终 $XXX」vs「QQQ 最终 $XXX」及超额收益
+- **单股回测**：「每笔入场 $X」输入框，各均线卡片底部显示顺序复利总盈亏
+
+#### 单股回测长周期（1Y / 2Y / 3Y / 5Y）
+
+- 展开行顶部加「回测期间」选择器，默认 1年（直接用扫描器数据）
+- 选 2/3/5年后出现「↓ 加载历史数据」按钮，点击按需从 Yahoo Finance 抓取该股 OHLCV
+- `fetchCandlesOHLC(symbol, range, signal)`：adjclose 做收盘，按 adjclose/close 比例缩放 high/low（处理拆股）
+- 数据按 `${symbol}_${range}` 缓存在 `btLongData` state，同 session 内不重复请求
+- 长周期 `vol20` 从完整数据末尾重新计算，而非用扫描器的1年 vol20
+- 各均线卡片展示：CAGR、Sharpe、MDD（顺序复利净值曲线）、vs QQQ（扫描器1年数据）、总盈亏
 
 #### 回测面板（核心功能）
 
@@ -196,3 +213,12 @@ git add -A && git commit -m "描述" && git push
 - `position:sticky` 表头失效 → 根因是 `borderCollapse:"collapse"`，必须改为 `"separate"` + `borderSpacing:0`，分割线改用 `boxShadow`
 - 一键优化「应用」按钮点击无反应 → 原因是只调用了 `setStratParams`（state 异步更新），回测未重跑；修复：`runStratBacktest` 新增 `overrideParams` 参数，「应用」改为「应用并回测」，先将参数存入局部变量 `p`，同步传给 `setStratParams(p)` 和 `runStratBacktest(p)`
 - 「运行回测」点击后指标全为0、换股次数0 → 根本原因：`onClick={runStratBacktest}` 让 React 把 SyntheticEvent 作为第一个参数传入，`overrideParams = event`（truthy），覆盖了 `stratParams`，导致 `sortMetric=undefined`，所有排名条件不匹配，`ranked` 始终为空；修复：改为 `onClick={()=>runStratBacktest()}`，无参调用
+- WFO 运行结果永远只显示1个窗口 → 根本原因：循环条件 `pos+inDays+outDays <= N` 要求 out-sample 必须是完整 outDays 天；5年数据实际交易日约1255天（不足整1260），第2窗口条件 `1260 <= 1255` 不满足；修复：改为 `pos+inDays+60 < N`，允许最后一个窗口的 out-sample 截短到数据末尾（`outEnd=Math.min(..., N)`）
+- MDD 显示为正数（如 +20.3%）语义错误 → `calcPortMetrics` 改为返回 `-mdd`（负数），所有 MetricCard 的 MDD 改 `higherBetter=true`（越接近0越好），一键优化排序改为降序，CAGR/MDD 比率改用 `Math.abs`
+- 单股回测新增 CAGR/Sharpe/MDD 均基于顺序复利净值曲线（trade by trade），样本量小（3～8次），看方向比看绝对值更有意义
+- WFO 原始错误：`runAllCombos` 仅测 topN=[5,10,20]、rebalanceFreq=['weekly','monthly']、参数仅96种，且窗口设计用固定3y+1y / 60%+20%，与 70/30 原则不符 → 全部重写：Grid Search 扩展到 448种（4×7×4×4），70/30 窗口，marketFilter 替换 qqq200Filter，新增 daily/quarterly 调仓
+
+## 函数签名变化（2026-05-24 WFO 重写）
+- `portfolioBacktest(params)` 新增 `marketFilter:'none'|'ma50'|'ma100'|'ma200'` 替代 `qqq200Filter:bool`（向后兼容）；`rebalanceFreq` 新增 `'daily'`/`'quarterly'`
+- `runAllCombos(histData,commonTs,qqqCloses,rangeStart,rangeEnd)` 参数网格从 96→448 种
+- `runWFO(histData,commonTs,qqqCloses,optMetric='sharpe')` 新增 optMetric 参数，窗口改为 70/30，返回值新增 `windowCount`/`totalCombos`/`optMetric`，`windowResults[i]` 新增 `inSampleScore`/`inSampleCAGR`/`inSampleMDD`/`inSampleComboCnt`

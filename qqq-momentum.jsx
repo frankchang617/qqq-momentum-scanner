@@ -70,9 +70,14 @@ function fmtDate(ts) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 function fmtParamLabel(p) {
-  const m = { score:'综合', ret20:'20日', ret50:'50日', ret200:'200日' };
-  const f = { weekly:'周调', monthly:'月调' };
-  return `${m[p.sortMetric]} Top${p.topN} ${f[p.rebalanceFreq]}${p.bufferEnabled?' 缓冲':''}${p.qqq200Filter?' 均线':''}`;
+  const m  = { score:'综合', ret20:'20日', ret50:'50日', ret200:'200日' };
+  const f  = { daily:'日调', weekly:'周调', monthly:'月调', quarterly:'季调' };
+  const mf = { none:'无滤', ma50:'>MA50', ma100:'>MA100', ma200:'>MA200' };
+  const filterLabel = p.marketFilter
+    ? (mf[p.marketFilter] ?? '无滤')
+    : (p.qqq200Filter ? '>MA200' : '无滤');
+  const buf = p.bufferEnabled ? ' 缓冲' : '';
+  return `${m[p.sortMetric]||p.sortMetric} Top${p.topN} ${f[p.rebalanceFreq]||'月调'} ${filterLabel}${buf}`;
 }
 
 function activeButtonStyle(isActive, T) {
@@ -511,12 +516,26 @@ function backtest(closes, highs, lows, maDays, entryMode="touch", exitMode="mabr
 // 无未来数据：排名用 t-1 收盘，交易用 t 收盘（无当日开盘数据时的标准近似）
 // 使用当前 QQQ 成分股，存在幸存者偏差
 function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, rangeEnd=null) {
-  const { sortMetric, topN, rebalanceFreq, bufferEnabled, qqq200Filter } = params;
+  const { sortMetric, topN, rebalanceFreq, bufferEnabled=false, qqq200Filter, marketFilter } = params;
+
+  // 市场过滤：支持旧版 qqq200Filter(bool) 和新版 marketFilter('none'/'ma50'/'ma100'/'ma200')
+  let maFilterDays = 0;
+  if      (marketFilter === 'ma50')  maFilterDays = 50;
+  else if (marketFilter === 'ma100') maFilterDays = 100;
+  else if (marketFilter === 'ma200') maFilterDays = 200;
+  else if (qqq200Filter)             maFilterDays = 200; // 旧版兼容
+
   const bufferN = bufferEnabled ? Math.round(topN * 1.5) : topN;
-  const rebalInterval = rebalanceFreq === 'weekly' ? 5 : 21;
+
+  // 调仓间隔（交易日）
+  const rebalInterval = rebalanceFreq === 'daily' ? 1
+    : rebalanceFreq === 'weekly'    ? 5
+    : rebalanceFreq === 'quarterly' ? 63
+    : 21; // monthly (默认)
+
   const N = rangeEnd ?? commonTs.length;
   const symbols = [...histData.keys()];
-  // 确保有足够的回望数据（200日均线）
+  // 预热期：200日（ret200/score 需要）
   const simStart = Math.max(rangeStart, 205);
   if (simStart >= N - 10) return { equityCurve:[1], timestamps:[], turnoverCount:0, simStart };
 
@@ -529,14 +548,14 @@ function portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart=0, 
     const isRebalDay = (t === simStart) || ((t - simStart) % rebalInterval === 0);
 
     if (isRebalDay) {
-      const d = t - 1; // 决策基于前一日数据
+      const d = t - 1; // 决策基于前一日数据（无未来数据）
 
-      // QQQ 200日均线滤网
+      // 市场过滤：QQQ 收盘 < MAx → 全部转现金
       let inMarket = true;
-      if (qqq200Filter && d >= 200) {
-        const slice = qqqCloses.slice(d-200, d);
-        const ma200 = slice.reduce((a,b)=>a+(b??0),0) / slice.filter(Boolean).length;
-        inMarket = qqqCloses[d] != null && qqqCloses[d] > ma200;
+      if (maFilterDays > 0 && d >= maFilterDays) {
+        const slice = qqqCloses.slice(d - maFilterDays, d);
+        const maVal = slice.reduce((a,b)=>a+(b??0),0) / slice.filter(Boolean).length;
+        inMarket = qqqCloses[d] != null && qqqCloses[d] > maVal;
       }
 
       if (!inMarket) {
@@ -642,20 +661,19 @@ function calcPortMetrics(equityCurve, timestamps) {
   return { cagr, sharpe, mdd:-mdd, drawdowns, annualRets, monthlyRets, total:(equityCurve[n-1]-1)*100 };
 }
 
-// 遍历所有参数组合
+// 遍历所有参数组合（Grid Search）
+// 参数空间：4×7×4×4 = 448 种组合
 function runAllCombos(histData, commonTs, qqqCloses, rangeStart=0, rangeEnd=null) {
   const results = [];
-  for (const sortMetric of ['score','ret20','ret50','ret200']) {
-    for (const topN of [5,10,20]) {
-      for (const rebalanceFreq of ['weekly','monthly']) {
-        for (const bufferEnabled of [true,false]) {
-          for (const qqq200Filter of [true,false]) {
-            const params = { sortMetric, topN, rebalanceFreq, bufferEnabled, qqq200Filter };
-            const bt = portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart, rangeEnd);
-            const metrics = calcPortMetrics(bt.equityCurve, bt.timestamps);
-            if (!metrics) continue;
-            results.push({ params, metrics, turnover:bt.turnoverCount });
-          }
+  for (const sortMetric of ['score','ret20','ret50','ret200']) {         // 动能回看期 × 4
+    for (const topN of [3,5,10,15,20,25,30]) {                           // 持仓数 × 7
+      for (const rebalanceFreq of ['daily','weekly','monthly','quarterly']) { // 调仓频率 × 4
+        for (const marketFilter of ['none','ma50','ma100','ma200']) {     // 市场过滤 × 4
+          const params = { sortMetric, topN, rebalanceFreq, bufferEnabled:false, marketFilter };
+          const bt = portfolioBacktest(histData, commonTs, qqqCloses, params, rangeStart, rangeEnd);
+          const metrics = calcPortMetrics(bt.equityCurve, bt.timestamps);
+          if (!metrics) continue;
+          results.push({ params, metrics, turnover:bt.turnoverCount });
         }
       }
     }
@@ -663,60 +681,107 @@ function runAllCombos(histData, commonTs, qqqCloses, rangeStart=0, rangeEnd=null
   return results;
 }
 
-// Walk Forward Optimization（前 X 年找最佳参数，下 Y 年测试，逐步滚动）
-function runWFO(histData, commonTs, qqqCloses) {
+// Walk Forward Optimization
+// 正确逻辑：
+//   1. in-sample 跑 Grid Search(448种) → 按 optMetric 选出最佳参数
+//   2. 用该参数固定跑 out-of-sample → 记录绩效
+//   3. out-of-sample 结果只用于记录，不参与任何参数选择
+//   4. 所有 out-of-sample 串接 → WFO 总绩效
+// 窗口设计：70% in-sample / 30% out-of-sample，按 OOS 步长滚动
+function runWFO(histData, commonTs, qqqCloses, optMetric='sharpe') {
   const N = commonTs.length;
-  let inDays, outDays;
-  if (N >= 252*4)      { inDays=252*3; outDays=252; }
-  else if (N >= 252*2) { inDays=Math.round(N*0.6); outDays=Math.round(N*0.2); }
-  else return null;
 
-  const windows=[];
-  let pos=0;
-  while (pos+inDays+60 < N) {
-    const outEnd = Math.min(pos+inDays+outDays, N);
-    windows.push({ inStart:pos, inEnd:pos+inDays, outStart:pos+inDays, outEnd });
-    pos+=outDays;
+  // 按可用数据决定窗口尺寸（70/30 原则）
+  const inDays  = Math.round(N * 0.70);
+  const outDays = N - inDays; // ≈ 30%
+
+  // 至少需要 1年 in-sample + 2个月 out-of-sample
+  if (inDays < 252 || outDays < 42) return null;
+
+  // 构建滚动窗口（OOS 不重叠，步长 = outDays）
+  const windows = [];
+  let pos = 0;
+  while (pos + inDays + 42 < N) {
+    const outEnd = Math.min(pos + inDays + outDays, N);
+    windows.push({ inStart: pos, inEnd: pos + inDays, outStart: pos + inDays, outEnd });
+    pos += outDays; // 滚动一个 OOS 区间
   }
   if (!windows.length) return null;
 
-  const windowResults=[];
-  let chainMult=1.0, allOutEquity=[], allOutTs=[];
+  // 评分函数：in-sample 按哪个指标选最佳参数
+  const scoreFn = (m) => {
+    if (optMetric === 'cagr')   return m.cagr;
+    if (optMetric === 'calmar') return m.cagr / Math.abs(m.mdd || 1);
+    return m.sharpe; // 默认：Sharpe
+  };
 
-  for (const win of windows) {
+  const windowResults = [];
+  let chainMult = 1.0, allOutEquity = [], allOutTs = [];
+
+  for (let wi = 0; wi < windows.length; wi++) {
+    const win = windows[wi];
+
+    // ── Step 1: in-sample Grid Search（448种参数组合）──
     const inCombos = runAllCombos(histData, commonTs, qqqCloses, win.inStart, win.inEnd);
-    inCombos.sort((a,b)=>b.metrics.sharpe-a.metrics.sharpe);
-    const bestParams = inCombos[0].params;
+    if (!inCombos.length) continue;
 
-    const outBt = portfolioBacktest(histData, commonTs, qqqCloses, bestParams, win.outStart, win.outEnd);
+    // ── Step 2: in-sample 内按 optMetric 选最佳参数 ──
+    inCombos.sort((a, b) => scoreFn(b.metrics) - scoreFn(a.metrics));
+    const bestCombo  = inCombos[0];
+    const bestParams = bestCombo.params; // ← 唯一用于 OOS 的参数，绝不事后修改
+
+    // ── Step 3: 用固定参数跑 out-of-sample（只记录，不选参数）──
+    const outBt      = portfolioBacktest(histData, commonTs, qqqCloses, bestParams, win.outStart, win.outEnd);
     const outMetrics = calcPortMetrics(outBt.equityCurve, outBt.timestamps);
 
-    const qqqOut = buildQqqEquity(qqqCloses, outBt.simStart, win.outEnd);
+    // QQQ 基准（同 OOS 期间）
+    const qqqOut        = buildQqqEquity(qqqCloses, outBt.simStart, win.outEnd);
     const qqqOutMetrics = calcPortMetrics(qqqOut.equityCurve, outBt.timestamps);
 
-    const chained = outBt.equityCurve.map(v=>v*chainMult);
-    chainMult = chained[chained.length-1] ?? chainMult;
+    // ── Step 4: 串接 OOS 净值曲线（乘法链接，保持连续性）──
+    const chained = outBt.equityCurve.map(v => v * chainMult);
+    chainMult = chained[chained.length - 1] ?? chainMult;
     allOutEquity.push(...chained);
     allOutTs.push(...outBt.timestamps);
 
     windowResults.push({
-      inPeriod: `${fmtDate(commonTs[win.inStart])} ~ ${fmtDate(commonTs[win.inEnd-1])}`,
-      outPeriod: `${fmtDate(commonTs[win.outStart])} ~ ${fmtDate(commonTs[win.outEnd-1])}`,
-      bestParams, outMetrics, qqqOutMetrics,
+      winIdx: wi + 1,
+      // 时间范围
+      inPeriod:  `${fmtDate(commonTs[win.inStart])} ~ ${fmtDate(commonTs[win.inEnd - 1])}`,
+      outPeriod: `${fmtDate(commonTs[win.outStart])} ~ ${fmtDate(commonTs[Math.min(win.outEnd, N) - 1])}`,
+      // in-sample 选出的最佳参数（这是 out-of-sample 实际使用的参数）
+      bestParams,
+      // in-sample 该参数的评分（用于审计）
+      inSampleScore:    scoreFn(bestCombo.metrics),
+      inSampleSharpe:   bestCombo.metrics.sharpe,
+      inSampleCAGR:     bestCombo.metrics.cagr,
+      inSampleMDD:      bestCombo.metrics.mdd,
+      inSampleComboCnt: inCombos.length,
+      // out-of-sample 实际绩效（in-sample 选出的参数跑出来的）
+      outMetrics,
+      qqqOutMetrics,
     });
   }
 
+  if (!allOutEquity.length) return null;
+
+  // ── Step 5: 所有 OOS 串接 → WFO 总绩效 ──
   const combinedMetrics = calcPortMetrics(allOutEquity, allOutTs);
 
-  // QQQ benchmark for full WFO out-sample period
-  const wfoStart = windows[0].outStart;
-  const wfoEnd   = windows[windows.length-1].outEnd;
-  const qqqWfo   = buildQqqEquity(qqqCloses, Math.max(wfoStart,205), wfoEnd);
-  // align length
-  const qqqWfoEq = qqqWfo.equityCurve.slice(0, allOutEquity.length);
+  // QQQ 基准（全 OOS 期间）
+  const wfoStart     = windows[0].outStart;
+  const wfoEnd       = windows[windows.length - 1].outEnd;
+  const qqqWfo       = buildQqqEquity(qqqCloses, Math.max(wfoStart, 205), wfoEnd);
+  const qqqWfoEq     = qqqWfo.equityCurve.slice(0, allOutEquity.length);
   const qqqCombinedMetrics = calcPortMetrics(qqqWfoEq, allOutTs.slice(0, qqqWfoEq.length));
 
-  return { windowResults, allOutEquity, allOutTs, combinedMetrics, qqqCombinedMetrics, qqqWfoEq };
+  return {
+    windowResults, allOutEquity, allOutTs,
+    combinedMetrics, qqqCombinedMetrics, qqqWfoEq,
+    optMetric,
+    totalCombos: 448, // 4×7×4×4
+    windowCount: windows.length,
+  };
 }
 
 // ── 主组件 ──
@@ -742,13 +807,14 @@ export default function App() {
   const [histLoading, setHistLoading] = useState(false);
   const [histProg,    setHistProg]    = useState({done:0,total:0});
   const [stratParams, setStratParams] = useState({
-    sortMetric:"score", topN:10, rebalanceFreq:"monthly", bufferEnabled:true, qqq200Filter:true
+    sortMetric:"score", topN:10, rebalanceFreq:"monthly", bufferEnabled:false, marketFilter:"ma200"
   });
   const [stratResult, setStratResult] = useState(null);
   const [optResult,   setOptResult]   = useState(null);
   const [optRunning,  setOptRunning]  = useState(false);
   const [wfoResult,   setWfoResult]   = useState(null);
   const [wfoRunning,  setWfoRunning]  = useState(false);
+  const [wfoOptMetric,setWfoOptMetric]= useState("sharpe"); // in-sample 优化指标
   const [showOpt,     setShowOpt]     = useState(false);
   const [showWfo,     setShowWfo]     = useState(false);
   const [darkMode,    setDarkMode]    = useState(true);
@@ -877,16 +943,16 @@ export default function App() {
     setOptResult(combos); setOptRunning(false);
   },[histData,histTs]);
 
-  // Walk Forward
+  // Walk Forward Optimization (Mode B)
   const handleRunWFO = useCallback(async ()=>{
     if(!histData||!histTs) return;
     setWfoRunning(true); setWfoResult(null);
     await new Promise(r=>setTimeout(r,50));
     const qqqCloses=histData.get('__QQQ__');
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
-    const result=runWFO(stockData,histTs,qqqCloses);
+    const result=runWFO(stockData,histTs,qqqCloses,wfoOptMetric);
     setWfoResult(result); setWfoRunning(false);
-  },[histData,histTs]);
+  },[histData,histTs,wfoOptMetric]);
 
   const { sorted, passCount, mAbs20, mAbs50, mAbs200, rankMap } = useMemo(()=>{
     const ret200vals=results.map(r=>r.ret200??0).sort((a,b)=>a-b);
@@ -1312,60 +1378,68 @@ export default function App() {
             )}
           </div>
 
-          {/* 策略参数区（数据加载后才显示） */}
+          {/* Mode A · Fixed Parameter Backtest（固定参数回测） */}
           {histData&&(
             <div style={{padding:"16px 20px",background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,marginBottom:20}}>
-              <div style={{fontSize:11,color:T.textSub,letterSpacing:1,marginBottom:12}}>STEP 2 · 策略参数</div>
+              {/* 标题 */}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                <span style={{background:"#005bcc",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:4,letterSpacing:1}}>MODE A</span>
+                <span style={{fontSize:12,color:T.textBright,fontWeight:600}}>Fixed Parameter Backtest</span>
+                <span style={{fontSize:10,color:T.textVMuted}}>— 固定参数全程回测，不做优化</span>
+              </div>
+
               <div style={{display:"flex",flexWrap:"wrap",gap:16,alignItems:"flex-start"}}>
+                {/* 排名指标（动能回看期） */}
                 <div>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>排名指标</div>
+                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>动能回看期</div>
                   <div style={{display:"flex",gap:4}}>
-                    {[{v:"score",l:"综合评分"},{v:"ret20",l:"20日"},{v:"ret50",l:"50日"},{v:"ret200",l:"200日"}].map(({v,l})=>(
-                      <button key={v} onClick={()=>setStratParams(p=>({...p,sortMetric:v}))} style={{padding:"4px 10px",...activeButtonStyle(stratParams.sortMetric===v,T)}}>{l}</button>
+                    {[{v:"score",l:"综合"},{v:"ret20",l:"20日"},{v:"ret50",l:"50日"},{v:"ret200",l:"200日"}].map(({v,l})=>(
+                      <button key={v} onClick={()=>setStratParams(p=>({...p,sortMetric:v}))}
+                        style={{padding:"4px 10px",...activeButtonStyle(stratParams.sortMetric===v,T)}}>{l}</button>
                     ))}
                   </div>
                 </div>
+
+                {/* 持仓数量（TopN） */}
                 <div>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>持仓数量</div>
-                  <div style={{display:"flex",gap:4}}>
-                    {[5,10,20].map(n=>(
-                      <button key={n} onClick={()=>setStratParams(p=>({...p,topN:n}))} style={{padding:"4px 10px",...activeButtonStyle(stratParams.topN===n,T)}}>Top {n}</button>
+                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>持仓数量 (TopN)</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    {[3,5,10,15,20,25,30].map(n=>(
+                      <button key={n} onClick={()=>setStratParams(p=>({...p,topN:n}))}
+                        style={{padding:"4px 8px",...activeButtonStyle(stratParams.topN===n,T)}}>Top {n}</button>
                     ))}
                   </div>
                 </div>
+
+                {/* 调仓频率 */}
                 <div>
                   <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>调仓频率</div>
                   <div style={{display:"flex",gap:4}}>
-                    {[{v:"weekly",l:"每周"},{v:"monthly",l:"每月"}].map(({v,l})=>(
-                      <button key={v} onClick={()=>setStratParams(p=>({...p,rebalanceFreq:v}))} style={{padding:"4px 10px",...activeButtonStyle(stratParams.rebalanceFreq===v,T)}}>{l}</button>
+                    {[{v:"daily",l:"每日"},{v:"weekly",l:"每周"},{v:"monthly",l:"每月"},{v:"quarterly",l:"每季"}].map(({v,l})=>(
+                      <button key={v} onClick={()=>setStratParams(p=>({...p,rebalanceFreq:v}))}
+                        style={{padding:"4px 10px",...activeButtonStyle(stratParams.rebalanceFreq===v,T)}}>{l}</button>
                     ))}
                   </div>
                 </div>
-                <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-                  <button onClick={()=>setStratParams(p=>({...p,bufferEnabled:!p.bufferEnabled}))} style={{padding:"4px 12px",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:11,
-                    background:stratParams.bufferEnabled?(darkMode?"#003a1a":"#d0ffea"):"transparent",
-                    border:`1px solid ${stratParams.bufferEnabled?"#00aa55":T.borderMuted}`,
-                    color:stratParams.bufferEnabled?"#00aa55":T.textSub}}>
-                    {stratParams.bufferEnabled?"✓ ":""}缓冲换股
-                  </button>
-                  <button onClick={()=>setStratParams(p=>({...p,qqq200Filter:!p.qqq200Filter}))} style={{padding:"4px 12px",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:11,
-                    background:stratParams.qqq200Filter?(darkMode?"#003a1a":"#d0ffea"):"transparent",
-                    border:`1px solid ${stratParams.qqq200Filter?"#00aa55":T.borderMuted}`,
-                    color:stratParams.qqq200Filter?"#00aa55":T.textSub}}>
-                    {stratParams.qqq200Filter?"✓ ":""}QQQ均线滤网
-                  </button>
+
+                {/* 市场过滤（QQQ 均线） */}
+                <div>
+                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>市场过滤（QQQ 跌破均线 → 转现金）</div>
+                  <div style={{display:"flex",gap:4}}>
+                    {[{v:"none",l:"不过滤"},{v:"ma50",l:">MA50"},{v:"ma100",l:">MA100"},{v:"ma200",l:">MA200"}].map(({v,l})=>(
+                      <button key={v} onClick={()=>setStratParams(p=>({...p,marketFilter:v}))}
+                        style={{padding:"4px 10px",...activeButtonStyle(stratParams.marketFilter===v,T)}}>{l}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              {stratParams.bufferEnabled&&(
-                <div style={{marginTop:8,fontSize:10,color:T.textVMuted}}>
-                  缓冲区：Top {stratParams.topN} 买入 / 跌出 Top {Math.round(stratParams.topN*1.5)} 才卖出
-                </div>
-              )}
-              <div style={{marginTop:14}}>
+
+              <div style={{marginTop:14,display:"flex",alignItems:"center",gap:12}}>
                 <button onClick={()=>runStratBacktest()} style={{padding:"6px 20px",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontSize:12,
                   background:darkMode?"#004488":"#0055cc",border:"1px solid #4488ee",color:"#88ccff"}}>
-                  ▶ 运行回测
+                  ▶ 运行固定参数回测
                 </button>
+                <span style={{fontSize:10,color:T.textVMuted}}>当前：{fmtParamLabel(stratParams)}</span>
               </div>
             </div>
           )}
@@ -1438,20 +1512,23 @@ export default function App() {
             </div>
           )}
 
-          {/* 一键优化 */}
+          {/* 一键优化（Full Grid Search on full data） */}
           {histData&&(
             <div style={{marginBottom:20}}>
               <button onClick={()=>setShowOpt(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",
                 background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,cursor:"pointer",
                 color:T.textSub,fontFamily:"inherit",fontSize:11,width:"100%",textAlign:"left"}}>
                 <span style={{color:"#4488ee",fontWeight:700}}>{showOpt?"▼":"▶"}</span>
-                一键优化 — 自动遍历所有参数组合 (96种)
+                参数全量扫描（Grid Search，448 种组合）
                 {optResult&&<span style={{marginLeft:"auto",color:"#00aa44",fontSize:10}}>✓ 已完成</span>}
               </button>
               {showOpt&&(
                 <div style={{padding:"16px 20px",background:T.cardBg,border:`1px solid ${T.border}`,borderTop:"none",borderRadius:"0 0 8px 8px"}}>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:12}}>
-                    遍历：排名指标×4 · Top N×3 · 调仓频率×2 · 缓冲换股×2 · QQQ均线滤网×2 = 96种组合
+                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:4}}>
+                    动能回看期×4 · TopN×7 · 调仓频率×4 · 市场过滤×4 = 448 种组合（全量历史数据）
+                  </div>
+                  <div style={{fontSize:10,color:"#cc8800",marginBottom:12}}>
+                    ⚠️ 注意：此处是在全量数据上选参，结果存在 in-sample 过拟合风险。如需无偏验证，请使用下方 Walk Forward Optimization。
                   </div>
                   <button disabled={optRunning} onClick={handleRunOptimize} style={{padding:"5px 18px",borderRadius:6,cursor:optRunning?"not-allowed":"pointer",
                     fontFamily:"inherit",fontSize:11,background:darkMode?"#004488":"#0055cc",
@@ -1508,72 +1585,194 @@ export default function App() {
             </div>
           )}
 
-          {/* Walk Forward Optimization */}
+          {/* Mode B · Walk Forward Optimization */}
           {histData&&(
             <div style={{marginBottom:20}}>
               <button onClick={()=>setShowWfo(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",
                 background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:8,cursor:"pointer",
                 color:T.textSub,fontFamily:"inherit",fontSize:11,width:"100%",textAlign:"left"}}>
                 <span style={{color:"#aa66ff",fontWeight:700}}>{showWfo?"▼":"▶"}</span>
-                Walk Forward Optimization（滚动验证）
+                <span style={{background:"#5522aa",color:"#ddb8ff",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:4,letterSpacing:1}}>MODE B</span>
+                Walk Forward Optimization（滚动验证，无未来数据）
                 {wfoResult&&<span style={{marginLeft:"auto",color:"#00aa44",fontSize:10}}>✓ 已完成</span>}
               </button>
+
               {showWfo&&(
                 <div style={{padding:"16px 20px",background:T.cardBg,border:`1px solid ${T.border}`,borderTop:"none",borderRadius:"0 0 8px 8px"}}>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:12}}>
-                    前 N 年找最佳参数（in-sample），下一年验证（out-of-sample），逐年滚动。串接所有 out-sample 结果与 QQQ 对比。
+
+                  {/* 说明 */}
+                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:10,lineHeight:1.6}}>
+                    <b style={{color:T.textSub}}>正确 WFO 逻辑</b>：① in-sample 跑 Grid Search(448种) → ② 按优化指标选最佳参数 →
+                    ③ 固定该参数跑 out-of-sample → ④ 记录绩效（不重新选参）→ ⑤ 串接所有 OOS 得总绩效。
+                    窗口比例：in-sample 70% / out-of-sample 30%。
                   </div>
-                  <button disabled={wfoRunning} onClick={handleRunWFO} style={{padding:"5px 18px",borderRadius:6,cursor:wfoRunning?"not-allowed":"pointer",
-                    fontFamily:"inherit",fontSize:11,background:darkMode?"#220044":"#5522aa",
-                    border:"1px solid #9966ee",color:"#cc99ff",opacity:wfoRunning?0.6:1,marginBottom:14}}>
-                    {wfoRunning?"⏳ 运行中…":"▶ 运行 Walk Forward"}
+
+                  {/* 优化指标选择 */}
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <span style={{fontSize:10,color:T.textSub,whiteSpace:"nowrap"}}>in-sample 优化指标：</span>
+                    {[{v:"sharpe",l:"Sharpe（推荐）"},{v:"cagr",l:"CAGR"},{v:"calmar",l:"Calmar (CAGR/MDD)"}].map(({v,l})=>(
+                      <button key={v} onClick={()=>setWfoOptMetric(v)}
+                        style={{padding:"4px 10px",fontSize:10,...activeButtonStyle(wfoOptMetric===v,T)}}>{l}</button>
+                    ))}
+                  </div>
+
+                  <button disabled={wfoRunning} onClick={handleRunWFO} style={{padding:"6px 20px",borderRadius:6,cursor:wfoRunning?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontSize:12,background:darkMode?"#220044":"#5522aa",
+                    border:"1px solid #9966ee",color:"#cc99ff",opacity:wfoRunning?0.6:1,marginBottom:16}}>
+                    {wfoRunning?"⏳ 运行中（448种×窗口数）…":"▶ 运行 Walk Forward Optimization"}
                   </button>
+
                   {wfoResult&&(()=>{
                     const cm=wfoResult.combinedMetrics, qm=wfoResult.qqqCombinedMetrics;
+                    const optLabel = {sharpe:"Sharpe",cagr:"CAGR",calmar:"Calmar"}[wfoResult.optMetric]||wfoResult.optMetric;
                     return (
                       <>
-                        {/* 每窗口结果 */}
-                        <div style={{overflowX:"auto",marginBottom:16}}>
-                          <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:11}}>
+                        {/* 运行摘要 */}
+                        <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:14,padding:"10px 14px",
+                          background:T.cardBg2,border:`1px solid ${T.border}`,borderRadius:7,fontSize:10}}>
+                          <span style={{color:T.textSub}}>窗口数：<b style={{color:T.textBright}}>{wfoResult.windowCount}</b></span>
+                          <span style={{color:T.textSub}}>参数组合数/窗口：<b style={{color:T.textBright}}>{wfoResult.totalCombos}</b></span>
+                          <span style={{color:T.textSub}}>in-sample 优化指标：<b style={{color:"#cc99ff"}}>{optLabel}</b></span>
+                          <span style={{color:T.textSub}}>OOS 总数据点：<b style={{color:T.textBright}}>{wfoResult.allOutEquity.length}</b> 天</span>
+                        </div>
+
+                        {/* ── 逐窗口明细表 ── */}
+                        <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>
+                          逐窗口明细（in-sample 选参 → out-of-sample 验证）
+                        </div>
+                        <div style={{overflowX:"auto",marginBottom:20}}>
+                          <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:10,minWidth:900}}>
                             <thead>
                               <tr>
-                                {["In-sample期间","Out-sample期间","最佳参数","out-CAGR","out-Sharpe","out-MDD","QQQ-CAGR"].map(h=>(
-                                  <th key={h} style={{padding:"6px 10px",textAlign:"left",color:T.textSub,fontWeight:400,fontSize:10,
-                                    background:T.theadBg,boxShadow:`0 1px 0 ${T.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                                {[
+                                  {h:"#",note:""},
+                                  {h:"In-Sample 时间",note:"训练期"},
+                                  {h:"Out-of-Sample 时间",note:"验证期"},
+                                  {h:"选出 TopN",note:"↑ in-sample 最优"},
+                                  {h:"动能回看期",note:"↑ in-sample 最优"},
+                                  {h:"调仓频率",note:"↑ in-sample 最优"},
+                                  {h:"市场过滤",note:"↑ in-sample 最优"},
+                                  {h:`IS ${optLabel}`,note:"in-sample 得分"},
+                                  {h:"OOS CAGR",note:""},
+                                  {h:"OOS Sharpe",note:""},
+                                  {h:"OOS MDD",note:""},
+                                  {h:"OOS 总收益",note:""},
+                                  {h:"QQQ CAGR",note:"同期基准"},
+                                ].map(({h,note})=>(
+                                  <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:500,fontSize:9,
+                                    background:T.theadBg,boxShadow:`0 1px 0 ${T.border}`,whiteSpace:"nowrap",
+                                    color:T.textSub}}>
+                                    {h}
+                                    {note&&<div style={{fontSize:8,color:T.textVMuted,fontWeight:400}}>{note}</div>}
+                                  </th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
-                              {wfoResult.windowResults.map((w,i)=>(
-                                <tr key={i} style={{borderTop:`1px solid ${T.border}`}}>
-                                  <td style={{padding:"6px 10px",color:T.textMuted,fontSize:10}}>{w.inPeriod}</td>
-                                  <td style={{padding:"6px 10px",color:T.textBright,fontSize:10}}>{w.outPeriod}</td>
-                                  <td style={{padding:"6px 10px",color:T.textSub,fontSize:10}}>{fmtParamLabel(w.bestParams)}</td>
-                                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:w.outMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>{w.outMetrics?fmtPct(w.outMetrics.cagr,1):"—"}</td>
-                                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:T.text}}>{w.outMetrics?w.outMetrics.sharpe.toFixed(2):"—"}</td>
-                                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:"#ee3344"}}>{w.outMetrics?fmtPct(w.outMetrics.mdd,1):"—"}</td>
-                                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:w.qqqOutMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>{w.qqqOutMetrics?fmtPct(w.qqqOutMetrics.cagr,1):"—"}</td>
-                                </tr>
-                              ))}
+                              {wfoResult.windowResults.map((w,i)=>{
+                                const bp=w.bestParams;
+                                const mfLabel={none:"不过滤",ma50:">MA50",ma100:">MA100",ma200:">MA200"}[bp.marketFilter]||"—";
+                                const rfLabel={daily:"每日",weekly:"每周",monthly:"每月",quarterly:"每季"}[bp.rebalanceFreq]||bp.rebalanceFreq;
+                                const smLabel={score:"综合",ret20:"20日",ret50:"50日",ret200:"200日"}[bp.sortMetric]||bp.sortMetric;
+                                const isScore=wfoResult.optMetric==='cagr'?w.inSampleCAGR:w.inSampleSharpe;
+                                return (
+                                  <tr key={i} style={{background:i%2===0?T.cardBg:T.cardBg2}}>
+                                    <td style={{padding:"7px 10px",color:T.textVMuted,textAlign:"center",fontWeight:700}}>{w.winIdx}</td>
+                                    <td style={{padding:"7px 10px",color:T.textMuted,whiteSpace:"nowrap"}}>{w.inPeriod}</td>
+                                    <td style={{padding:"7px 10px",color:T.textBright,whiteSpace:"nowrap",fontWeight:600}}>{w.outPeriod}</td>
+                                    {/* ── in-sample 选出的参数 ── */}
+                                    <td style={{padding:"7px 10px",color:"#cc99ff",fontFamily:"monospace",fontWeight:700}}>Top {bp.topN}</td>
+                                    <td style={{padding:"7px 10px",color:"#cc99ff"}}>{smLabel}</td>
+                                    <td style={{padding:"7px 10px",color:"#cc99ff"}}>{rfLabel}</td>
+                                    <td style={{padding:"7px 10px",color:"#cc99ff",whiteSpace:"nowrap"}}>{mfLabel}</td>
+                                    {/* in-sample 评分 */}
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",color:T.textSub}}>{isScore!=null?isScore.toFixed(2):"—"}</td>
+                                    {/* ── out-of-sample 实际绩效 ── */}
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontWeight:700,
+                                      color:w.outMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>
+                                      {w.outMetrics?fmtPct(w.outMetrics.cagr,1):"—"}
+                                    </td>
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",color:T.text}}>
+                                      {w.outMetrics?w.outMetrics.sharpe.toFixed(2):"—"}
+                                    </td>
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",color:"#ee3344"}}>
+                                      {w.outMetrics?fmtPct(w.outMetrics.mdd,1):"—"}
+                                    </td>
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",
+                                      color:w.outMetrics?.total>=0?"#00aa44":"#ee3344"}}>
+                                      {w.outMetrics?fmtPct(w.outMetrics.total,1):"—"}
+                                    </td>
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",
+                                      color:w.qqqOutMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>
+                                      {w.qqqOutMetrics?fmtPct(w.qqqOutMetrics.cagr,1):"—"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
-                        {/* 汇总对比 */}
-                        <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>串接 Out-sample 汇总</div>
+
+                        {/* ── WFO 总绩效（所有 OOS 串接）── */}
+                        <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>
+                          Mode B · WFO Combined OOS 绩效（所有 out-of-sample 串接，无事后挑选）
+                        </div>
                         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
                           {cm&&[
-                            {label:"WFO CAGR",strat:cm.cagr,qqq:qm?.cagr,unit:"%",fmtFn:v=>v.toFixed(1)},
-                            {label:"WFO Sharpe",strat:cm.sharpe,qqq:qm?.sharpe,unit:"",fmtFn:v=>v.toFixed(2)},
-                            {label:"WFO MDD",strat:cm.mdd,qqq:qm?.mdd,unit:"%",higherBetter:true,fmtFn:v=>v.toFixed(1)},
+                            {label:"Combined OOS CAGR",   strat:cm.cagr,  qqq:qm?.cagr,  unit:"%", fmtFn:v=>v.toFixed(1)},
+                            {label:"Combined OOS Sharpe", strat:cm.sharpe,qqq:qm?.sharpe,unit:"",  fmtFn:v=>v.toFixed(2)},
+                            {label:"Combined OOS MDD",    strat:cm.mdd,   qqq:qm?.mdd,   unit:"%", higherBetter:true,fmtFn:v=>v.toFixed(1)},
+                            {label:"Combined OOS 总收益", strat:cm.total, qqq:qm?.total,  unit:"%", fmtFn:v=>v.toFixed(1)},
                           ].map((s,i)=><MetricCard key={i} {...s}/>)}
                         </div>
-                        {/* WFO 净值曲线 */}
+
+                        {/* WFO OOS 净值曲线 */}
                         {wfoResult.allOutEquity.length>10&&(
-                          <div style={{background:T.cardBg2,border:`1px solid ${T.border}`,borderRadius:8,padding:"14px 16px",overflowX:"auto"}}>
-                            <div style={{fontSize:10,color:T.textSub,marginBottom:8}}>WFO Out-sample 净值曲线</div>
+                          <div style={{background:T.cardBg2,border:`1px solid ${T.border}`,borderRadius:8,padding:"14px 16px",overflowX:"auto",marginBottom:12}}>
+                            <div style={{fontSize:10,color:T.textSub,marginBottom:8}}>
+                              WFO Combined OOS 净值曲线（策略 蓝线 vs QQQ 灰虚线）
+                            </div>
                             <EquityCurveChart stratEq={wfoResult.allOutEquity} qqqEq={wfoResult.qqqWfoEq} T={T}/>
                           </div>
                         )}
+
+                        {/* Mode A vs Mode B 对比卡 */}
+                        {stratResult?.metrics&&cm&&(()=>{
+                          const sa=stratResult.metrics, qa=stratResult.qqqMetrics;
+                          const rows=[
+                            {mode:"Mode A · Fixed Param Backtest（全量数据，含 in-sample）",cagr:sa.cagr,sharpe:sa.sharpe,mdd:sa.mdd,total:sa.total},
+                            {mode:"Mode B · WFO Combined OOS（纯 out-of-sample，无事后挑参）",cagr:cm.cagr,sharpe:cm.sharpe,mdd:cm.mdd,total:cm.total},
+                            {mode:"QQQ Buy & Hold（同 OOS 期间基准）",cagr:qm?.cagr,sharpe:qm?.sharpe,mdd:qm?.mdd,total:qm?.total},
+                          ];
+                          return (
+                            <div style={{marginTop:8}}>
+                              <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>Mode A vs Mode B 最终对比</div>
+                              <div style={{overflowX:"auto"}}>
+                                <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:10,minWidth:600}}>
+                                  <thead>
+                                    <tr>
+                                      {["模式","CAGR","Sharpe","MDD","累积收益"].map(h=>(
+                                        <th key={h} style={{padding:"6px 12px",textAlign:"left",fontWeight:500,fontSize:9,
+                                          background:T.theadBg,boxShadow:`0 1px 0 ${T.border}`,color:T.textSub}}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rows.map((r,i)=>(
+                                      <tr key={i} style={{background:i===1?(darkMode?"#1a0033":"#f3eeff"):i===2?(darkMode?"#111":"#f5f5f5"):T.cardBg}}>
+                                        <td style={{padding:"7px 12px",color:i===1?"#cc99ff":i===2?"#888":T.textSub,fontSize:10}}>{r.mode}</td>
+                                        <td style={{padding:"7px 12px",fontFamily:"monospace",fontWeight:700,color:r.cagr>=0?"#00aa44":"#ee3344"}}>{r.cagr!=null?fmtPct(r.cagr,1):"—"}</td>
+                                        <td style={{padding:"7px 12px",fontFamily:"monospace",color:T.text}}>{r.sharpe!=null?r.sharpe.toFixed(2):"—"}</td>
+                                        <td style={{padding:"7px 12px",fontFamily:"monospace",color:"#ee3344"}}>{r.mdd!=null?fmtPct(r.mdd,1):"—"}</td>
+                                        <td style={{padding:"7px 12px",fontFamily:"monospace",color:r.total>=0?"#00aa44":"#ee3344"}}>{r.total!=null?fmtPct(r.total,1):"—"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </>
                     );
                   })()}
