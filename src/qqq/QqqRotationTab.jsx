@@ -2,8 +2,8 @@
  * QqqRotationTab.jsx — QQQ 成分股轮转策略
  *
  * Props:
- *   _data  : Map<sym, {closes, opens}>（从父组件传入，已加载）
- *   _ts    : number[]（对齐时间戳）
+ *   effData  : Map<sym, {closes, opens}>（从父组件传入，已加载）
+ *   effTs    : number[]（对齐时间戳）
  *   T         : 主题色对象
  *   darkMode  : boolean
  */
@@ -524,8 +524,8 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   }, [histRange]);
 
   // 使用本地数据优先，回退到 props
-  const _data = histDataLocal || histData;
-  const _ts   = histTsLocal   || histTs;
+  const effData = histDataLocal || histData;
+  const effTs   = histTsLocal   || histTs;
 
   // ── 运行手动回测 ──
   const handleRunBacktest = useCallback(() => {
@@ -533,14 +533,14 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setBtResult(null);
     setTimeout(() => {
       try {
-        const bt = backtestQqqRotation(_data, _ts, params);
+        const bt = backtestQqqRotation(effData, effTs, params);
         if (!bt) { setBtRunning(false); return; }
         const metrics = calcMetrics(bt.equityCurve, bt.timestamps);
         if (!metrics) { setBtRunning(false); return; }
 
         // QQQ 买入持有基准
-        const qqqCloses = _data.get('__QQQ__')?.closes ?? _data.get('__QQQ__');
-        const startOffset = _ts.indexOf(bt.timestamps[0]);
+        const qqqCloses = effData.get('__QQQ__')?.closes ?? effData.get('__QQQ__');
+        const startOffset = effTs.indexOf(bt.timestamps[0]);
         const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
         const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
 
@@ -548,7 +548,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
       } catch (e) { console.error('QQQ rotation backtest error:', e); }
       setBtRunning(false);
     }, 50);
-  }, [_data, _ts, params]);
+  }, [effData, effTs, params]);
 
   // ── 应用参数并立即运行回测（Step 2 表格行按钮用）──
   const handleApplyAndBacktest = useCallback((rowParams) => {
@@ -557,19 +557,19 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setBtResult(null);
     setTimeout(() => {
       try {
-        const bt = backtestQqqRotation(_data, _ts, rowParams);
+        const bt = backtestQqqRotation(effData, effTs, rowParams);
         if (!bt) { setBtRunning(false); return; }
         const metrics = calcMetrics(bt.equityCurve, bt.timestamps);
         if (!metrics) { setBtRunning(false); return; }
-        const qqqCloses = _data.get('__QQQ__')?.closes ?? _data.get('__QQQ__');
-        const startOffset = _ts.indexOf(bt.timestamps[0]);
+        const qqqCloses = effData.get('__QQQ__')?.closes ?? effData.get('__QQQ__');
+        const startOffset = effTs.indexOf(bt.timestamps[0]);
         const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
         const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
         setBtResult({ ...bt, metrics, portMetrics: toPortMetrics(metrics), qqqEq, qqqMetrics, qqqPortMetrics: toPortMetrics(qqqMetrics) });
       } catch (e) { console.error('QQQ rotation backtest error:', e); }
       setBtRunning(false);
     }, 50);
-  }, [_data, _ts]);
+  }, [effData, effTs]);
 
   // ── 运行网格搜索 ──
   const handleRunGridSearch = useCallback(async () => {
@@ -578,13 +578,13 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setGsProgress({ done: 0, total: 288 });
     try {
       const res = await runQqqGridSearch(
-        _data, _ts, 0, null,
+        effData, effTs, 0, null,
         (done, total) => setGsProgress({ done, total })
       );
       setGsResult(res);
     } catch (e) { console.error('QQQ grid search error:', e); }
     setGsRunning(false);
-  }, [_data, _ts]);
+  }, [effData, effTs]);
 
   // ── 运行 WFO ──
   const handleRunWFO = useCallback(async () => {
@@ -593,7 +593,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setWfoPhase('IS Grid Search 运行中…');
     try {
       const res = await runQqqWFO(
-        _data, _ts, wfoOptMetric,
+        effData, effTs, wfoOptMetric,
         (phase, done, total) => {
           if (phase === 'is') setWfoPhase(`IS Grid Search ${done}/${total}…`);
           else                setWfoPhase('OOS 验证中…');
@@ -603,24 +603,24 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     } catch (e) { console.error('QQQ WFO error:', e); }
     setWfoRunning(false);
     setWfoPhase('');
-  }, [_data, _ts, wfoOptMetric]);
+  }, [effData, effTs, wfoOptMetric]);
 
   // ── 当前操作信号（基于手动回测参数）──
   const signal = useMemo(() => {
-    if (!_data || !_ts) return null;
-    const N       = _ts.length;
+    if (!effData || !effTs) return null;
+    const N       = effTs.length;
     const sigIdx  = N - 1;
-    const date    = new Date(_ts[sigIdx] * 1000).toISOString().slice(0, 10);
+    const date    = new Date(effTs[sigIdx] * 1000).toISOString().slice(0, 10);
 
-    const qqqData   = _data.get('__QQQ__');
+    const qqqData   = effData.get('__QQQ__');
     const qqqCloses = qqqData?.closes ?? qqqData;
-    const shyData   = _data.get('SHY');
+    const shyData   = effData.get('SHY');
     const shyCloses = shyData?.closes ?? shyData ?? null;
-    const symbols   = [..._data.keys()].filter(k => k !== '__QQQ__' && k !== 'SHY');
+    const symbols   = [...effData.keys()].filter(k => k !== '__QQQ__' && k !== 'SHY');
 
     const symCloses = new Map();
     for (const sym of symbols) {
-      const d = _data.get(sym);
+      const d = effData.get(sym);
       symCloses.set(sym, d?.closes ?? d);
     }
 
@@ -657,7 +657,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
       prices:   Object.fromEntries(top.map(r => [r.sym, r.price])),
       scores:   scores.slice(0, 10),
     };
-  }, [_data, _ts, params]);
+  }, [effData, effTs, params]);
 
   // ── 持仓对比：上一期目标持仓 vs 本期目标持仓 ──
   const prevSignalRef = useRef(null);
@@ -748,7 +748,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   const fmtDate = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '—';
 
   // ── 数据未加载 ──
-  if (!_data || !_ts || _ts.length === 0) {
+  if (!effData || !effTs || effTs.length === 0) {
     const histPct = histProg.total > 0 ? Math.round(histProg.done / histProg.total * 100) : 0;
     return (
       <div style={{ padding: '20px 28px' }}>
@@ -785,9 +785,9 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
             }}>
               {histLoading ? '加载中…' : '↓ 加载历史数据'}
             </button>
-            {_data && !histLoading && (
+            {effData && !histLoading && (
               <span style={{ fontSize: 11, color: '#00aa44' }}>
-                ✓ 已加载 {_data.size - 1} 只股票 × {histRange === '2y' ? '2年' : histRange === '3y' ? '3年' : histRange === '5y' ? '5年' : '10年'}数据
+                ✓ 已加载 {effData.size - 1} 只股票 × {histRange === '2y' ? '2年' : histRange === '3y' ? '3年' : histRange === '5y' ? '5年' : '10年'}数据
               </span>
             )}
           </div>
