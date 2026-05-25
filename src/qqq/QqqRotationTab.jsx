@@ -2,8 +2,8 @@
  * QqqRotationTab.jsx — QQQ 成分股轮转策略
  *
  * Props:
- *   histData  : Map<sym, {closes, opens}>（从父组件传入，已加载）
- *   histTs    : number[]（对齐时间戳）
+ *   _data  : Map<sym, {closes, opens}>（从父组件传入，已加载）
+ *   _ts    : number[]（对齐时间戳）
  *   T         : 主题色对象
  *   darkMode  : boolean
  */
@@ -13,6 +13,52 @@ import { backtestQqqRotation, buildQqqBenchmark, paramLabelQqq } from './strateg
 import { runQqqGridSearch } from './optimization/qqqGridSearch.js';
 import { runQqqWFO } from './optimization/qqqWfo.js';
 import { calcMetrics } from '../etf/strategies/metrics.js';
+
+// Nasdaq-100 components (updated May 2026)
+const QQQ_COMPONENTS = [
+  "AAPL","MSFT","NVDA","AMZN","GOOGL","GOOG","META","TSLA","AVGO","COST",
+  "NFLX","PLTR","AMD","ADBE","PEP","CSCO","QCOM","INTC","TXN","INTU",
+  "AMGN","AMAT","HON","BKNG","ISRG","VRTX","ADI","REGN","PANW","LRCX",
+  "KLAC","MDLZ","ADP","SBUX","GILD","MELI","MU","SNPS","CDNS","FTNT",
+  "ORLY","ASML","CTAS","CRWD","ABNB","MAR","PAYX","MNST","KDP","ROST",
+  "PCAR","CEG","CHTR","ODFL","FAST","DXCM","IDXX","VRSK","CTSH","ZS",
+  "MCHP","GEHC","CPRT","CSX","NXPI","EA","PYPL","PDD","WDAY","DDOG",
+  "TTWO","CCEP","APP","ARM","ADSK","AXON","BKR","CMCSA","DASH","EXC",
+  "FANG","INSM","KHC","LIN","MRVL","MSTR","MPWR","SHOP","TMUS","WMT",
+  "WBD","SNDK","STX","WDC","ALNY","AEP","ROP","XEL","FER","LITE","TRI"
+];
+
+// ── 数据获取 ──
+async function fetchCandlesExtended(symbol, range, signal) {
+  const url = `/api/yahoo?symbol=${symbol}&range=${range}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) return null;
+      const tss = result.timestamp;
+      const adj = result.indicators?.adjclose?.[0]?.adjclose;
+      const q   = result.indicators?.quote?.[0];
+      if (!tss || !adj || adj.length < 20) return null;
+      const rows = [];
+      for (let i = 0; i < tss.length; i++) {
+        if (adj[i] != null && adj[i] > 0) {
+          const rawClose = q?.close?.[i];
+          const rawOpen  = q?.open?.[i];
+          const scale   = rawClose > 0 ? adj[i] / rawClose : 1;
+          const adjOpen = rawOpen != null ? rawOpen * scale : adj[i];
+          rows.push({ c: adj[i], o: adjOpen, ts: tss[i] });
+        }
+      }
+      return rows.length >= 20 ? rows : null;
+    } catch (e) {
+      if (signal.aborted || attempt === 1) throw e;
+    }
+  }
+}
 
 // ─── 净值曲线图（与 QQQ成分股轮动 一致）────────────────────────────────────────
 function EquityCurveChart({ stratEq, qqqEq, timestamps, T }) {
@@ -401,15 +447,151 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   const [showWfo,      setShowWfo]      = useState(false);
   const [wfoPhase,     setWfoPhase]     = useState('');
 
+  // ── 本地数据加载 ──
+  const histAbortRef = useRef(null);
+  const [histDataLocal, setHistDataLocal] = useState(null);
+  const [histTsLocal,   setHistTsLocal]   = useState(null);
+  const [histRange,     setHistRange]     = useState('3y');
+  const [histLoading,   setHistLoading]   = useState(false);
+  const [histProg,      setHistProg]      = useState({ done: 0, total: 0 });
+
+  const loadHistData = useCallback(async () => {
+    histAbortRef.current?.abort();
+    const ctrl = new AbortController(); histAbortRef.current = ctrl;
+    const { signal } = ctrl;
+    setHistLoading(true); setHistProg({ done: 0, total: QQQ_COMPONENTS.length + 1 });
+    setHistDataLocal(null); setHistTsLocal(null);
+    setBtResult(null); setGsResult(null); setWfoResult(null);
+    try {
+      const qqqRaw = await fetchCandlesExtended('QQQ', histRange, signal);
+      if (!qqqRaw) { setHistLoading(false); return; }
+      const qqqTs  = qqqRaw.map(d => d.ts);
+      const qqqAdj = qqqRaw.map(d => d.c);
+      const qqqAdjOpen = qqqRaw.map(d => d.o);
+      const tsIdx = new Map(qqqTs.map((t, i) => [t, i]));
+      const Nq = qqqTs.length;
+      setHistProg({ done: 1, total: QQQ_COMPONENTS.length + 1 });
+
+      const rawMap = new Map();
+      const BATCH = 5;
+      for (let i = 0; i < QQQ_COMPONENTS.length; i += BATCH) {
+        if (signal.aborted) break;
+        await Promise.all(QQQ_COMPONENTS.slice(i, i + BATCH).map(async sym => {
+          try {
+            const raw = await fetchCandlesExtended(sym, histRange, signal);
+            if (raw) rawMap.set(sym, raw);
+          } catch (e) {}
+        }));
+        setHistProg({ done: i + BATCH + 1, total: QQQ_COMPONENTS.length + 1 });
+        if (i + BATCH < QQQ_COMPONENTS.length && !signal.aborted) await new Promise(r => setTimeout(r, 300));
+      }
+      if (signal.aborted) return;
+
+      const aligned = new Map();
+      aligned.set('__QQQ__', { closes: qqqAdj, opens: qqqAdjOpen });
+      for (const [sym, rows] of rawMap) {
+        const closesArr = new Array(Nq).fill(null);
+        const opensArr  = new Array(Nq).fill(null);
+        for (const { c, o, ts: t } of rows) {
+          const idx = tsIdx.get(t);
+          if (idx !== undefined) { closesArr[idx] = c; opensArr[idx] = o; }
+        }
+        for (let j = 1; j < Nq; j++) {
+          if (closesArr[j] === null && closesArr[j - 1] !== null) closesArr[j] = closesArr[j - 1];
+          if (opensArr[j]  === null && opensArr[j - 1]  !== null) opensArr[j]  = opensArr[j - 1];
+        }
+        aligned.set(sym, { closes: closesArr, opens: opensArr });
+      }
+      try {
+        const shyRaw = await fetchCandlesExtended('SHY', histRange, signal);
+        if (shyRaw) {
+          const shyClosesArr = new Array(Nq).fill(null);
+          const shyOpensArr  = new Array(Nq).fill(null);
+          for (const { c, o, ts: t } of shyRaw) {
+            const idx = tsIdx.get(t);
+            if (idx !== undefined) { shyClosesArr[idx] = c; shyOpensArr[idx] = o; }
+          }
+          for (let j = 1; j < Nq; j++) {
+            if (shyClosesArr[j] === null && shyClosesArr[j - 1] !== null) shyClosesArr[j] = shyClosesArr[j - 1];
+            if (shyOpensArr[j]  === null && shyOpensArr[j - 1]  !== null) shyOpensArr[j]  = shyOpensArr[j - 1];
+          }
+          aligned.set('SHY', { closes: shyClosesArr, opens: shyOpensArr });
+        }
+      } catch (e) { /* SHY 加载失败不影响整体 */ }
+
+      setHistDataLocal(aligned); setHistTsLocal(qqqTs); setHistLoading(false);
+    } catch (e) { if (!signal.aborted) { console.error(e); setHistLoading(false); } }
+  }, [histRange]);
+
+  // 使用本地数据优先，回退到 props
+  const _data = histDataLocal || histData;
+  const _ts   = histTsLocal   || histTs;
+
   // ── 数据未加载 ──
-  if (!histData || !histTs || histTs.length === 0) {
+  if (!_data || !_ts || _ts.length === 0) {
+    const histPct = histProg.total > 0 ? Math.round(histProg.done / histProg.total * 100) : 0;
     return (
-      <div style={{ padding: '48px 28px', textAlign: 'center' }}>
-        <div style={{ fontSize: 22, marginBottom: 12 }}>📊</div>
-        <div style={{ fontSize: 14, color: T.textBright, marginBottom: 8 }}>请先加载历史数据</div>
-        <div style={{ fontSize: 11, color: T.textSub }}>
-          切换到「QQQ 成分股轮动」标签页，选择 <strong>10年</strong> 数据并点击「加载历史数据」
+      <div style={{ padding: '20px 28px' }}>
+        <div style={{
+          padding: '8px 14px', borderRadius: 6, marginBottom: 20, fontSize: 11, color: '#cc8800',
+          background: darkMode ? '#1a1200' : '#fffbe6', border: '1px solid #cc880044',
+        }}>
+          ⚠️ 使用当前 QQQ 成分股回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
         </div>
+
+        <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 10 }}>STEP 0 · 加载历史数据</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: histLoading ? 12 : 0 }}>
+            <span style={{ fontSize: 11, color: T.textMuted }}>历史深度</span>
+            {['2y', '3y', '5y', '10y'].map(r => (
+              <button key={r} disabled={histLoading} onClick={() => setHistRange(r)} style={{
+                padding: '4px 12px', borderRadius: 4, cursor: histLoading ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit', fontSize: 11,
+                background: histRange === r ? (darkMode ? '#005bcc' : '#0055cc') : 'transparent',
+                border: `1px solid ${histRange === r ? '#4488ee' : T.btnBorder}`,
+                color: histRange === r ? '#fff' : T.btnColor,
+                fontWeight: histRange === r ? 600 : 400,
+              }}>
+                {r === '2y' ? '2年' : r === '3y' ? '3年' : r === '5y' ? '5年' : '10年'}
+                {r === '10y' && <span style={{ fontSize: 8, marginLeft: 3, color: '#aa66ff', fontWeight: 700 }}>WFO</span>}
+              </button>
+            ))}
+            <button disabled={histLoading} onClick={loadHistData} style={{
+              padding: '5px 16px', borderRadius: 6, cursor: histLoading ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', fontSize: 11,
+              background: darkMode ? '#004488' : '#0055cc',
+              border: '1px solid #4488ee', color: darkMode ? '#88ccff' : '#ffffff',
+              opacity: histLoading ? 0.6 : 1,
+            }}>
+              {histLoading ? '加载中…' : '↓ 加载历史数据'}
+            </button>
+            {_data && !histLoading && (
+              <span style={{ fontSize: 11, color: '#00aa44' }}>
+                ✓ 已加载 {_data.size - 1} 只股票 × {histRange === '2y' ? '2年' : histRange === '3y' ? '3年' : histRange === '5y' ? '5年' : '10年'}数据
+              </span>
+            )}
+          </div>
+          {histLoading && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.textSub, marginBottom: 4 }}>
+                <span>正在拉取 {histProg.done} / {histProg.total}</span>
+                <span>{histPct}%</span>
+              </div>
+              <div style={{ height: 3, background: T.barTrack ?? '#333', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ width: `${histPct}%`, height: '100%', background: 'linear-gradient(90deg,#005bcc,#00c96e)', borderRadius: 2 }} />
+              </div>
+            </div>
+          )}
+        </div>
+        {!histLoading && (
+          <div style={{ padding: '48px 28px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, marginBottom: 12 }}>📊</div>
+            <div style={{ fontSize: 14, color: T.textBright, marginBottom: 8 }}>请先加载历史数据</div>
+            <div style={{ fontSize: 11, color: T.textSub }}>
+              选择历史深度后点击「加载历史数据」，或切换到「QQQ 成分股轮动」标签页加载
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -420,14 +602,14 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setBtResult(null);
     setTimeout(() => {
       try {
-        const bt = backtestQqqRotation(histData, histTs, params);
+        const bt = backtestQqqRotation(_data, _ts, params);
         if (!bt) { setBtRunning(false); return; }
         const metrics = calcMetrics(bt.equityCurve, bt.timestamps);
         if (!metrics) { setBtRunning(false); return; }
 
         // QQQ 买入持有基准
-        const qqqCloses = histData.get('__QQQ__')?.closes ?? histData.get('__QQQ__');
-        const startOffset = histTs.indexOf(bt.timestamps[0]);
+        const qqqCloses = _data.get('__QQQ__')?.closes ?? _data.get('__QQQ__');
+        const startOffset = _ts.indexOf(bt.timestamps[0]);
         const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
         const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
 
@@ -435,7 +617,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
       } catch (e) { console.error('QQQ rotation backtest error:', e); }
       setBtRunning(false);
     }, 50);
-  }, [histData, histTs, params]);
+  }, [_data, _ts, params]);
 
   // ── 应用参数并立即运行回测（Step 2 表格行按钮用）──
   const handleApplyAndBacktest = useCallback((rowParams) => {
@@ -444,19 +626,19 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setBtResult(null);
     setTimeout(() => {
       try {
-        const bt = backtestQqqRotation(histData, histTs, rowParams);
+        const bt = backtestQqqRotation(_data, _ts, rowParams);
         if (!bt) { setBtRunning(false); return; }
         const metrics = calcMetrics(bt.equityCurve, bt.timestamps);
         if (!metrics) { setBtRunning(false); return; }
-        const qqqCloses = histData.get('__QQQ__')?.closes ?? histData.get('__QQQ__');
-        const startOffset = histTs.indexOf(bt.timestamps[0]);
+        const qqqCloses = _data.get('__QQQ__')?.closes ?? _data.get('__QQQ__');
+        const startOffset = _ts.indexOf(bt.timestamps[0]);
         const qqqEq = buildQqqBenchmark(qqqCloses, startOffset, startOffset + bt.timestamps.length);
         const qqqMetrics = calcMetrics(qqqEq, bt.timestamps);
         setBtResult({ ...bt, metrics, portMetrics: toPortMetrics(metrics), qqqEq, qqqMetrics, qqqPortMetrics: toPortMetrics(qqqMetrics) });
       } catch (e) { console.error('QQQ rotation backtest error:', e); }
       setBtRunning(false);
     }, 50);
-  }, [histData, histTs]);
+  }, [_data, _ts]);
 
   // ── 运行网格搜索 ──
   const handleRunGridSearch = useCallback(async () => {
@@ -465,13 +647,13 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setGsProgress({ done: 0, total: 288 });
     try {
       const res = await runQqqGridSearch(
-        histData, histTs, 0, null,
+        _data, _ts, 0, null,
         (done, total) => setGsProgress({ done, total })
       );
       setGsResult(res);
     } catch (e) { console.error('QQQ grid search error:', e); }
     setGsRunning(false);
-  }, [histData, histTs]);
+  }, [_data, _ts]);
 
   // ── 运行 WFO ──
   const handleRunWFO = useCallback(async () => {
@@ -480,7 +662,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     setWfoPhase('IS Grid Search 运行中…');
     try {
       const res = await runQqqWFO(
-        histData, histTs, wfoOptMetric,
+        _data, _ts, wfoOptMetric,
         (phase, done, total) => {
           if (phase === 'is') setWfoPhase(`IS Grid Search ${done}/${total}…`);
           else                setWfoPhase('OOS 验证中…');
@@ -490,24 +672,24 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     } catch (e) { console.error('QQQ WFO error:', e); }
     setWfoRunning(false);
     setWfoPhase('');
-  }, [histData, histTs, wfoOptMetric]);
+  }, [_data, _ts, wfoOptMetric]);
 
   // ── 当前操作信号（基于手动回测参数）──
   const signal = useMemo(() => {
-    if (!histData || !histTs) return null;
-    const N       = histTs.length;
+    if (!_data || !_ts) return null;
+    const N       = _ts.length;
     const sigIdx  = N - 1;
-    const date    = new Date(histTs[sigIdx] * 1000).toISOString().slice(0, 10);
+    const date    = new Date(_ts[sigIdx] * 1000).toISOString().slice(0, 10);
 
-    const qqqData   = histData.get('__QQQ__');
+    const qqqData   = _data.get('__QQQ__');
     const qqqCloses = qqqData?.closes ?? qqqData;
-    const shyData   = histData.get('SHY');
+    const shyData   = _data.get('SHY');
     const shyCloses = shyData?.closes ?? shyData ?? null;
-    const symbols   = [...histData.keys()].filter(k => k !== '__QQQ__' && k !== 'SHY');
+    const symbols   = [..._data.keys()].filter(k => k !== '__QQQ__' && k !== 'SHY');
 
     const symCloses = new Map();
     for (const sym of symbols) {
-      const d = histData.get(sym);
+      const d = _data.get(sym);
       symCloses.set(sym, d?.closes ?? d);
     }
 
@@ -544,7 +726,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
       prices:   Object.fromEntries(top.map(r => [r.sym, r.price])),
       scores:   scores.slice(0, 10),
     };
-  }, [histData, histTs, params]);
+  }, [_data, _ts, params]);
 
   // ── 持仓对比：上一期目标持仓 vs 本期目标持仓 ──
   const prevSignalRef = useRef(null);

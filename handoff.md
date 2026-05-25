@@ -235,6 +235,15 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 - 两者差异大小反映过拟合程度：差异越大 = 过拟合越严重；OOS 不输 IS = 泛化能力强
 - 决策时应以 Mode B（WFO）为准
 
+#### QQQ轮转策略新增独立数据加载
+
+在 QQQ轮转策略页面中新增 STEP 0 数据加载区，与 QQQ成分股轮动的加载方式完全一致：
+- 历史深度选择（2y/3y/5y/10y）+ 加载按钮 + 进度条
+- 使用 Yahoo Finance API，批次拉取（每批5只，间隔300ms）
+- 同时加载 SHY 数据供防御资产使用
+- 本地数据优先，回退到父组件传入的 props（保持兼容性）
+- 改动文件：`src/qqq/QqqRotationTab.jsx`（新增 QQQ_COMPONENTS、fetchCandlesExtended、本地状态和 loadHistData）
+
 ---
 
 ## 下一步（待规划）
