@@ -726,6 +726,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   prevSignalRef.current = signal;
 
   // ── 资金流转摘要 ──
+  const cap = parseFloat(investAmount) || 0;
   let sellTotal = 0, buyTotal = 0;
   if (cap > 0 && sellList.length > 0) {
     sellTotal = sellList.reduce((s, x) => {
@@ -741,7 +742,6 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   }
   const netFlow = sellTotal - buyTotal;
 
-  const cap = parseFloat(investAmount) || 0;
   const gsPct = gsProgress.total > 0 ? Math.round(gsProgress.done / gsProgress.total * 100) : 0;
 
   // ── 日期格式化 ──

@@ -248,6 +248,20 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 
 ---
 
+## ✅ Session 13 完成（2026-05-25）
+
+### 修复：QQQ 轮转策略点击后白屏
+
+**根因**：`QqqRotationTab.jsx` 中 `const cap` 在第 744 行声明，但第 730 行起就已使用。`const` 不像 `var` 会提升（hoisting），在声明前访问会抛出 `ReferenceError: Cannot access 'cap' before initialization`，导致组件渲染崩溃白屏。
+
+**修复**：将 `const cap = parseFloat(investAmount) || 0;` 从第 744 行移至资金流转摘要计算块最前面（第 728 行），确保变量先声明后使用。
+
+| 文件 | 改动 |
+|------|------|
+| `src/qqq/QqqRotationTab.jsx` | 将 `const cap` 声明提前至使用位置之前 |
+
+---
+
 ## 下一步（待规划）
 
 所有规划功能已全部完成，可根据需要开展新功能或优化。
