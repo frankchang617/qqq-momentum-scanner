@@ -8,7 +8,7 @@
  *   darkMode  : boolean
  */
 
-import React, { useState, useCallback, useMemo, Fragment } from 'react';
+import React, { useState, useCallback, useMemo, useRef, Fragment } from 'react';
 import { backtestQqqRotation, buildQqqBenchmark, paramLabelQqq } from './strategies/qqqRotation.js';
 import { runQqqGridSearch } from './optimization/qqqGridSearch.js';
 import { runQqqWFO } from './optimization/qqqWfo.js';
@@ -310,6 +310,71 @@ const pct  = (v, d = 1) => v == null ? '—' : `${(v * 100).toFixed(d)}%`;
 const fmt2 = v => v == null ? '—' : v.toFixed(2);
 const fmtMoney = v => v == null ? '—' : `$${Math.round(v).toLocaleString()}`;
 
+// ─── 策略规则卡（可折叠，默认收起）──────────────────────────────────────────
+function StrategyRuleCard({ T, darkMode, params }) {
+  const [open, setOpen] = useState(false);
+  const freqLabel = { 5: '每周（5日）', 10: '每两周（10日）', 21: '每月（21日）' }[params.rebalFreq] || `${params.rebalFreq}日`;
+  const lookbackLabel = { 20: '20日', 21: '1个月（21日）', 50: '50日', 63: '3个月（63日）', 126: '6个月（126日）', 200: '200日' }[params.lookback] || `${params.lookback}日`;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', width: '100%', textAlign: 'left',
+          background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: open ? '8px 8px 0 0' : 8,
+          cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, color: T.textSub,
+        }}
+      >
+        <span style={{ color: '#4488ee', fontWeight: 700 }}>{open ? '▼' : '▶'}</span>
+        <span style={{ fontWeight: 600 }}>策略规则</span>
+        <span style={{ color: T.textMuted, marginLeft: 8 }}>
+          回看{lookbackLabel} · Top{params.topN} · {freqLabel}
+          {params.marketFilter ? ` · SMA200过滤→${params.defensiveAsset}` : ' · 无市场过滤'}
+        </span>
+      </button>
+      {open && (
+        <div style={{
+          padding: '14px 18px', background: T.cardBg, border: `1px solid ${T.border}`, borderTop: 'none',
+          borderRadius: '0 0 8px 8px', fontSize: 11, lineHeight: 1.9, color: T.textSub,
+        }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+            {/* 入场条件 */}
+            <div>
+              <div style={{ fontWeight: 700, color: '#4fc86e', marginBottom: 6, fontSize: 12 }}>入场条件</div>
+              <div>· 对 QQQ 全部成分股（约90只）按单一回看期计算动能</div>
+              <div>· 动能 = 当日收盘 / N日前收盘 − 1</div>
+              <div>· 选排名前 <b style={{ color: T.textBright }}>Top {params.topN}</b>，等权持有</div>
+              <div>· 仅入选动能为正的股票（ret &gt; 0）</div>
+            </div>
+            {/* 出场条件 */}
+            <div>
+              <div style={{ fontWeight: 700, color: '#ee3344', marginBottom: 6, fontSize: 12 }}>出场条件</div>
+              <div>· 调仓日重新排名，不在 Top{params.topN} 的持仓<b style={{ color: '#ee3344' }}>全部清仓</b>（无缓冲区）</div>
+              <div>· 个股动能转负 → 调仓日不再入选</div>
+              <div>· 所有成分股动能均为负 → 全仓切换防御资产</div>
+              <div>· 无独立止损 / 止盈 / 移动止损</div>
+            </div>
+            {/* 防御机制 */}
+            <div>
+              <div style={{ fontWeight: 700, color: '#e8883a', marginBottom: 6, fontSize: 12 }}>防御机制</div>
+              <div>· 市场过滤：QQQ 收盘 &lt; SMA200 → 全仓切换至 <b style={{ color: '#e8883a' }}>{params.defensiveAsset}</b></div>
+              <div>· 防御资产可选：CASH（现金）/ QQQ（买入持有）/ SHY（短期国债）</div>
+            </div>
+            {/* 执行方式 */}
+            <div>
+              <div style={{ fontWeight: 700, color: '#88bbff', marginBottom: 6, fontSize: 12 }}>执行方式</div>
+              <div>· T 日收盘信号 → T+1 日开盘执行（MOO 模型）</div>
+              <div>· 调仓频率：<b style={{ color: T.textBright }}>{freqLabel}</b></div>
+              <div>· 回看窗口：<b style={{ color: T.textBright }}>{lookbackLabel}</b></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
 
@@ -481,6 +546,88 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     };
   }, [histData, histTs, params]);
 
+  // ── 持仓对比：上一期目标持仓 vs 本期目标持仓 ──
+  const prevSignalRef = useRef(null);
+  const prevSignal = prevSignalRef.current;
+  const isFirstSignal = !prevSignal || Object.keys(prevSignal.holdings).length === 0;
+
+  let sellList = [], buyList = [], holdList = [];
+
+  if (signal && prevSignal && !isFirstSignal) {
+    const prevSyms = new Set(Object.keys(prevSignal.holdings));
+    const currSyms = new Set(Object.keys(signal.holdings));
+
+    // 防御切换：从正常→防御 或 防御→正常 或 防御→另一防御
+    const wasDefensive = prevSignal.isDefensive;
+    const isDefensive  = signal.isDefensive;
+
+    if (wasDefensive && !isDefensive) {
+      // 从防御切回正常持仓
+      const defSym = prevSignal.defensiveAsset || 'CASH';
+      sellList.push({ sym: defSym, reason: '市场恢复，退出防御模式', price: null });
+    }
+
+    if (!wasDefensive && isDefensive) {
+      // 触发防御：全部卖出
+      for (const sym of prevSyms) {
+        sellList.push({ sym, reason: '市场过滤触发 → 全仓切换防御', price: prevSignal.prices?.[sym] });
+      }
+    }
+
+    if (!wasDefensive && !isDefensive) {
+      // 正常调仓对比
+      for (const sym of prevSyms) {
+        if (currSyms.has(sym)) {
+          const se = signal.scores?.find(s => s.sym === sym);
+          const rank = se ? signal.scores.indexOf(se) + 1 : '?';
+          holdList.push({ sym, reason: `仍在Top${params.topN}内(#${rank}，+${se ? (se.ret*100).toFixed(1) : '?'}%)`, price: signal.prices?.[sym] });
+        } else {
+          const se = signal.scores?.find(s => s.sym === sym);
+          const reason = se
+            ? (se.ret <= 0 ? '动能转负' : `跌出Top${params.topN}(#${signal.scores.indexOf(se)+1})`)
+            : '数据缺失';
+          sellList.push({ sym, reason, price: prevSignal.prices?.[sym] });
+        }
+      }
+      for (const sym of currSyms) {
+        if (!prevSyms.has(sym)) {
+          const se = signal.scores?.find(s => s.sym === sym);
+          const rank = se ? signal.scores.indexOf(se) + 1 : '?';
+          buyList.push({ sym, reason: `新进Top${params.topN}(#${rank}，+${se ? (se.ret*100).toFixed(1) : '?'}%)`, price: signal.prices?.[sym] });
+        }
+      }
+    } else if (wasDefensive && isDefensive) {
+      // 防御未变
+      const defSym = signal.defensiveAsset || 'CASH';
+      holdList.push({ sym: defSym, reason: '继续防御', price: null });
+    }
+
+    if (isDefensive && !wasDefensive) {
+      // 买入防御资产
+      const defSym = signal.defensiveAsset || 'CASH';
+      buyList.push({ sym: defSym, reason: '市场过滤触发 → 切换防御资产', price: null });
+    }
+  }
+
+  // 更新 ref
+  prevSignalRef.current = signal;
+
+  // ── 资金流转摘要 ──
+  let sellTotal = 0, buyTotal = 0;
+  if (cap > 0 && sellList.length > 0) {
+    sellTotal = sellList.reduce((s, x) => {
+      const w = prevSignal?.holdings?.[x.sym] ?? 0;
+      return s + cap * w;
+    }, 0);
+  }
+  if (cap > 0 && buyList.length > 0) {
+    buyTotal = buyList.reduce((s, x) => {
+      const w = signal?.holdings?.[x.sym] ?? 0;
+      return s + cap * w;
+    }, 0);
+  }
+  const netFlow = sellTotal - buyTotal;
+
   const cap = parseFloat(investAmount) || 0;
   const gsPct = gsProgress.total > 0 ? Math.round(gsProgress.done / gsProgress.total * 100) : 0;
 
@@ -497,6 +644,9 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
       }}>
         ⚠️ 使用当前 QQQ 成分股回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
       </div>
+
+      {/* ═══════ 策略规则卡（可折叠，默认收起）═══════ */}
+      <StrategyRuleCard T={T} darkMode={darkMode} params={params} />
 
       {/* ═══════ STEP 1：固定参数回测 ═══════ */}
       <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
@@ -607,7 +757,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
         )}
       </div>
 
-      {/* ═══════ 操作建议信号面板 ═══════ */}
+      {/* ═══════ 调仓指令面板 ═══════ */}
       {signal && (
         <div style={{
           padding: '14px 18px', borderRadius: 8, marginBottom: 20,
@@ -615,12 +765,13 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
           border: `1px solid ${T.border}`,
           borderLeft: `4px solid ${signal.isDefensive ? '#e8883a' : '#4fc86e'}`,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: T.textBright }}>📡 当前操作建议</span>
+          {/* 标题行 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T.textBright }}>📡 调仓指令</span>
             <span style={{ fontSize: 10, color: T.textMuted }}>{signal.date}</span>
             <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: signal.isDefensive ? '#e8883a' : '#4fc86e' }}>
               {signal.isDefensive
-                ? `⚠️ 市场过滤触发 → ${signal.defensiveAsset}`
+                ? `⚠️ 防御模式 → ${signal.defensiveAsset}`
                 : `🟢 持仓 Top ${Object.keys(signal.holdings).length}`}
             </span>
           </div>
@@ -628,8 +779,8 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
           {/* 市场状态 */}
           {params.marketFilter && signal.qqqNow != null && signal.sma200 != null && (
             <div style={{ fontSize: 11, color: T.textSub, marginBottom: 10 }}>
-              QQQ <strong>${signal.qqqNow.toFixed(1)}</strong>
-              {' vs SMA200 '}<strong>${signal.sma200.toFixed(1)}</strong>
+              QQQ <strong style={{ color: T.textBright }}>${signal.qqqNow.toFixed(1)}</strong>
+              {' vs SMA200 '}<strong style={{ color: T.textBright }}>${signal.sma200.toFixed(1)}</strong>
               {' — '}
               <span style={{ color: signal.isDefensive ? '#e8883a' : '#4fc86e', fontWeight: 600 }}>
                 {signal.isDefensive ? '低于均线，切换防御' : '高于均线，正常持仓'}
@@ -637,7 +788,112 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
             </div>
           )}
 
-          {/* 投入金额 */}
+          {/* ── 操作清单 ── */}
+          {isFirstSignal && !signal.isDefensive && (
+            <div style={{ fontSize: 11, color: '#4fc86e', marginBottom: 12, padding: '8px 12px', background: '#4fc86e14', borderRadius: 6, border: '1px solid #4fc86e33' }}>
+              🟢 <b>初始建仓</b> — 首次信号，按以下目标持仓等权买入
+            </div>
+          )}
+          {isFirstSignal && signal.isDefensive && (
+            <div style={{ fontSize: 11, color: '#e8883a', marginBottom: 12, padding: '8px 12px', background: '#e8883a14', borderRadius: 6, border: '1px solid #e8883a33' }}>
+              ⚠️ <b>市场过滤触发</b> — 首次信号即处于防御模式，建议持现金等待
+            </div>
+          )}
+
+          {!isFirstSignal && (sellList.length > 0 || buyList.length > 0) && (
+            <div style={{ marginBottom: 14 }}>
+              {/* 卖出清单 */}
+              {sellList.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: '#ee3344', fontWeight: 700, marginBottom: 4 }}>
+                    🔴 卖出（{sellList.length}只）
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {sellList.map(({ sym, reason, price }) => (
+                      <div key={sym} style={{
+                        padding: '5px 10px', borderRadius: 4, fontSize: 10,
+                        background: '#ee334411', border: '1px solid #ee334433',
+                      }}>
+                        <span style={{ fontWeight: 700, color: '#ee3344', fontFamily: 'monospace' }}>{sym}</span>
+                        {price != null && <span style={{ color: T.textMuted, marginLeft: 4 }}>${price.toFixed(1)}</span>}
+                        <div style={{ color: T.textMuted, fontSize: 9, marginTop: 1 }}>{reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 买入清单 */}
+              {buyList.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: '#4fc86e', fontWeight: 700, marginBottom: 4 }}>
+                    🟢 买入（{buyList.length}只）
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {buyList.map(({ sym, reason, price }) => (
+                      <div key={sym} style={{
+                        padding: '5px 10px', borderRadius: 4, fontSize: 10,
+                        background: '#4fc86e11', border: '1px solid #4fc86e33',
+                      }}>
+                        <span style={{ fontWeight: 700, color: '#4fc86e', fontFamily: 'monospace' }}>{sym}</span>
+                        {price != null && <span style={{ color: T.textMuted, marginLeft: 4 }}>${price.toFixed(1)}</span>}
+                        <div style={{ color: T.textMuted, fontSize: 9, marginTop: 1 }}>{reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 继续持有清单 */}
+              {holdList.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: '#4488ee', fontWeight: 700, marginBottom: 4 }}>
+                    🔵 继续持有（{holdList.length}只）
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {holdList.map(({ sym, reason, price }) => (
+                      <div key={sym} style={{
+                        padding: '5px 10px', borderRadius: 4, fontSize: 10,
+                        background: '#4488ee11', border: '1px solid #4488ee33',
+                      }}>
+                        <span style={{ fontWeight: 700, color: '#4488ee', fontFamily: 'monospace' }}>{sym}</span>
+                        {price != null && <span style={{ color: T.textMuted, marginLeft: 4 }}>${price.toFixed(1)}</span>}
+                        <div style={{ color: T.textMuted, fontSize: 9, marginTop: 1 }}>{reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 资金流转摘要 ── */}
+          {!isFirstSignal && cap > 0 && (sellList.length > 0 || buyList.length > 0) && (
+            <div style={{
+              padding: '8px 12px', marginBottom: 12, borderRadius: 6,
+              background: T.pageBg, border: `1px solid ${T.border}`,
+              fontSize: 11, color: T.textSub, lineHeight: 1.8,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 2, color: T.textBright }}>💰 资金流转摘要</div>
+              {sellList.length > 0 && (
+                <div>🔴 卖出回收：<b style={{ color: '#ee3344', fontFamily: 'monospace' }}>{fmtMoney(sellTotal)}</b></div>
+              )}
+              {buyList.length > 0 && (
+                <div>🟢 买入需要：<b style={{ color: '#4fc86e', fontFamily: 'monospace' }}>{fmtMoney(buyTotal)}</b></div>
+              )}
+              <div>
+                {netFlow > 0.005 ? (
+                  <span>净回笼现金：<b style={{ color: '#e8883a', fontFamily: 'monospace' }}>{fmtMoney(netFlow)}</b>（可保留或按比例再分配）</span>
+                ) : netFlow < -0.005 ? (
+                  <span>净追加投入：<b style={{ color: '#4fc86e', fontFamily: 'monospace' }}>{fmtMoney(Math.abs(netFlow))}</b></span>
+                ) : (
+                  <span>资金平衡，无需额外操作</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── 投入金额 ── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <span style={{ fontSize: 11, color: T.textSub }}>投入金额</span>
             <span style={{ fontSize: 11, color: T.textSub }}>$</span>
@@ -652,11 +908,11 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
             />
           </div>
 
-          {/* 持仓明细 */}
+          {/* ── 目标持仓明细 ── */}
           {!signal.isDefensive && Object.keys(signal.holdings).length > 0 && (
             <div>
               <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 6 }}>
-                等权持有 · 每只 {pct(Object.values(signal.holdings)[0])}
+                目标持仓 · 等权持有 · 每只 {pct(Object.values(signal.holdings)[0])}
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {Object.entries(signal.holdings).map(([sym, w]) => {
@@ -683,15 +939,16 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
             </div>
           )}
 
-          {/* 防御模式 */}
+          {/* 防御模式目标 */}
           {signal.isDefensive && (
-            <div style={{ fontSize: 12, color: '#e8883a' }}>
-              建议持有 <strong>{signal.defensiveAsset}</strong>
+            <div style={{ fontSize: 12, color: '#e8883a', padding: '8px 12px', background: '#e8883a14', borderRadius: 6, border: '1px solid #e8883a33' }}>
+              目标持仓：<b>{signal.defensiveAsset}</b>
               {cap > 0 && <span>，共 {fmtMoney(cap)}</span>}
             </div>
           )}
         </div>
       )}
+
 
       {/* ═══════ STEP 2：一键优化 ═══════ */}
       <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
