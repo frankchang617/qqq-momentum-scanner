@@ -2,10 +2,10 @@
  * gridSearch.js — 一键优化：遍历三个策略的全量参数组合
  *
  * 参数网格：
- *   策略1 强势轮动：lookback×4 × topN×3 × defensiveAsset×3 = 36种
- *   策略2 双动能：  lookback×3 × maFilter×2 × defensiveAsset×3 = 18种
+ *   策略1 强势轮动：lookback×7 × topN×3 × defensiveAsset×3 = 63种
+ *   策略2 双动能：  lookback×6 × maFilter×2 × defensiveAsset×3 = 36种
  *   策略3 波动率控管：有效组合 = 32种（低阈值<高阈值约束）
- *   合计：86种
+ *   合计：131种
  *
  * 综合评分（百分位加权）：
  *   Score = Sharpe_pct × 0.40 + MDD_pct × 0.35 + CAGR_pct × 0.25
@@ -28,7 +28,7 @@ export function getMomentumParams() {
       }
     }
   }
-  return result; // 36种
+  return result; // 63种
 }
 
 /**
@@ -43,7 +43,7 @@ export function getDualMomentumParams() {
       }
     }
   }
-  return result; // 18种
+  return result; // 36种
 }
 
 /**
@@ -169,7 +169,7 @@ export function paramLabel(p) {
   const parts = [stratName];
 
   if (p.lookback != null) {
-    const lb = { 21:'1M', 63:'3M', 126:'6M', 252:'12M' }[p.lookback] ?? `${p.lookback}D`;
+    const lb = { 20:'20D', 21:'1M', 50:'50D', 63:'3M', 126:'6M', 200:'200D', 252:'12M' }[p.lookback] ?? `${p.lookback}D`;
     parts.push(`回看${lb}`);
   }
   if (p.topN != null) parts.push(`Top${p.topN}`);

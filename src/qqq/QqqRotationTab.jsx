@@ -326,7 +326,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   // ── 网格搜索 ──
   const [gsResult,   setGsResult]   = useState(null);
   const [gsRunning,  setGsRunning]  = useState(false);
-  const [gsProgress, setGsProgress] = useState({ done: 0, total: 144 });
+  const [gsProgress, setGsProgress] = useState({ done: 0, total: 288 });
   const [investAmount, setInvestAmount] = useState('10000');
 
   // ── WFO ──
@@ -397,7 +397,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   const handleRunGridSearch = useCallback(async () => {
     setGsRunning(true);
     setGsResult(null);
-    setGsProgress({ done: 0, total: 144 });
+    setGsProgress({ done: 0, total: 288 });
     try {
       const res = await runQqqGridSearch(
         histData, histTs, 0, null,
@@ -695,7 +695,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
 
       {/* ═══════ STEP 2：一键优化 ═══════ */}
       <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 10 }}>STEP 2 · 一键优化（144种参数组合）</div>
+        <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 10 }}>STEP 2 · 一键优化（288种参数组合）</div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: gsRunning ? 12 : 0 }}>
           <button
@@ -848,7 +848,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
             {/* 说明 */}
             <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 10, lineHeight: 1.7 }}>
               <b style={{ color: T.textSub }}>单窗口 WFO 逻辑</b>（推荐先加载 10 年数据）：
-              ① 前 70% 数据做 in-sample，跑 Grid Search（144 种组合）→
+              ① 前 70% 数据做 in-sample，跑 Grid Search（288 种组合）→
               ② 按优化指标选最佳参数 →
               ③ <b style={{ color: '#88bbff' }}>固定该参数</b>跑后 30% out-of-sample →
               ④ 记录 OOS 绩效（不重新选参，不事后调整）。
@@ -883,7 +883,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                 opacity: wfoRunning ? 0.6 : 1, marginBottom: 16,
               }}
             >
-              {wfoRunning ? `⏳ ${wfoPhase || '运行中（144种参数组合）…'}` : '▶ 运行 Walk Forward Optimization'}
+              {wfoRunning ? `⏳ ${wfoPhase || '运行中（288种参数组合）…'}` : '▶ 运行 Walk Forward Optimization'}
             </button>
 
             {/* WFO 结果 */}

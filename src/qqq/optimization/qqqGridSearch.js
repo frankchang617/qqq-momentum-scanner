@@ -1,7 +1,7 @@
 /**
  * qqqGridSearch.js — QQQ 成分股轮转参数网格搜索
  *
- * 遍历全量 144 种参数组合，计算回测指标，按综合评分降序返回。
+ * 遍历全量 288 种参数组合，计算回测指标，按综合评分降序返回。
  *
  * 综合评分（百分位加权）：
  *   Score = Sharpe_pct × 0.40 + MDD_pct × 0.35 + CAGR_pct × 0.25
@@ -25,7 +25,7 @@ export async function runQqqGridSearch(
   startIdx = 0, endIdx = null,
   onProgress = null
 ) {
-  const allParams = getQqqRotationParams(); // 144种
+  const allParams = getQqqRotationParams(); // 288种
   const total     = allParams.length;
   const rawResults = [];
 

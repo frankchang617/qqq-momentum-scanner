@@ -18,7 +18,7 @@
 
 export const MOMENTUM_UNIVERSE = ['QQQ','SPY','XLK','DXJ','TLT','GLD','SHY','TSM','SOXX'];
 export const MOMENTUM_PARAM_GRID = {
-  lookback:        [21, 63, 126, 252],   // 1M, 3M, 6M, 12M
+  lookback:        [20, 21, 50, 63, 126, 200, 252], // 20D,1M,50D,3M,6M,200D,12M
   topN:            [1, 2, 3],
   defensiveAsset:  ['SHY', 'GLD', 'CASH'],
 };

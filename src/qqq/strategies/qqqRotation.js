@@ -10,14 +10,14 @@
  *  - 执行：T 收盘信号 → T+1 开盘执行（MOO）
  *
  * 参数网格：
- *   lookback × 3 × topN × 4 × rebalFreq × 3 × marketFilter × 2 × defensiveAsset × 3
- *   filter=false: 3×4×3 = 36种
- *   filter=true:  3×4×3×3 = 108种
- *   合计：144种
+ *   lookback × 6 × topN × 4 × rebalFreq × 3 × marketFilter × 2 × defensiveAsset × 3
+ *   filter=false: 6×4×3 = 72种
+ *   filter=true:  6×4×3×3 = 216种
+ *   合计：288种
  */
 
 export const QQQ_ROTATION_PARAM_GRID = {
-  lookback:       [21, 63, 126],          // 1M, 3M, 6M
+  lookback:       [20, 21, 50, 63, 126, 200], // 20D, 1M, 50D, 3M, 6M, 200D
   topN:           [1, 3, 5, 10],
   rebalFreq:      [5, 10, 21],            // 周、双周、月
   marketFilter:   [false, true],
@@ -25,7 +25,7 @@ export const QQQ_ROTATION_PARAM_GRID = {
 };
 
 /**
- * 生成有效参数组合列表（144种）
+ * 生成有效参数组合列表（288种）
  */
 export function getQqqRotationParams() {
   const result = [];
@@ -41,7 +41,7 @@ export function getQqqRotationParams() {
       }
     }
   }
-  return result; // 36 + 108 = 144种
+  return result; // 72 + 216 = 288种
 }
 
 /**
@@ -249,7 +249,7 @@ export function buildQqqBenchmark(qqqCloses, startIdx, endIdx) {
  */
 export function paramLabelQqq(p) {
   if (!p) return '—';
-  const lb   = { 21: '1M', 63: '3M', 126: '6M' }[p.lookback]   ?? `${p.lookback}D`;
+  const lb   = { 20: '20D', 21: '1M', 50: '50D', 63: '3M', 126: '6M', 200: '200D' }[p.lookback] ?? `${p.lookback}D`;
   const freq = { 5: '周调仓', 10: '双周调仓', 21: '月调仓' }[p.rebalFreq] ?? `${p.rebalFreq}D`;
   const parts = [`回看${lb}`, `Top${p.topN}`, freq];
   if (p.marketFilter) parts.push(`防御=${p.defensiveAsset}`);

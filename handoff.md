@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-25 Session 10（WFO QQQ基准线 + 全局暗色模式文字可读性）
+更新时间：2026-05-25 Session 11（扩展动能回看期参数网格）
 
 ## 项目结构
 
@@ -66,13 +66,13 @@ src/qqq/                      # QQQ 轮转策略模块（本 Session 新建，�
 
 | 参数 | 候选值 |
 |------|--------|
-| lookback | 21、63、126（1M/3M/6M） |
+| lookback | 20、21、50、63、126、200（20D/1M/50D/3M/6M/200D） |
 | topN | 1、3、5、10 |
 | rebalFreq | 5、10、21（周/双周/月） |
 | marketFilter | false（无过滤）/ true（QQQ < SMA200） |
 | defensiveAsset | CASH / QQQ / SHY（filter=true 时） |
 
-- filter=false：36种 · filter=true：108种 · 合计：144种
+- filter=false：72种 · filter=true：216种 · 合计：288种
 
 ### 关键设计
 
@@ -143,6 +143,36 @@ QQQ 曲线与策略曲线**等长**，保证像素精确对齐；各窗口衔接
 
 升级规则：SVG轴/说明文字 → `textMuted #6a8090`；表头/操作标签/数据值 → `textSub #7a9aaa`  
 **保留**：月度热图空值色（`v==null?T.textVMuted`，无数据格用极暗色是正确视觉语言）
+
+---
+
+---
+
+## ✅ Session 11 完成（2026-05-25）
+
+### 扩展三大策略动能回看期参数网格
+
+在 QQQ 轮转、ETF 强势轮动、ETF 双动能三个策略的 lookback 参数网格中新增 **20日、50日、200日** 回看期选项。
+
+| 策略 | 原 lookback | 新 lookback | 组合数 |
+|------|------------|-------------|--------|
+| QQQ 轮转 | 21/63/126 | 20/21/50/63/126/200 | 144→288 |
+| ETF 强势轮动 | 21/63/126/252 | 20/21/50/63/126/200/252 | 36→63 |
+| ETF 双动能 | 63/126/252 | 20/50/63/126/200/252 | 18→36 |
+| ETF 三策略合计 | — | — | 86→131 |
+
+**改动文件（9个）**：
+- `src/qqq/strategies/qqqRotation.js` — PARAM_GRID + paramLabel + 注释
+- `src/etf/strategies/momentum.js` — MOMENTUM_PARAM_GRID
+- `src/etf/strategies/dualMomentum.js` — DUAL_MOMENTUM_PARAM_GRID
+- `src/etf/optimization/gridSearch.js` — paramLabel + 参数数量注释
+- `src/etf/optimization/wfo.js` — 参数数量注释
+- `src/qqq/optimization/qqqGridSearch.js` — 参数数量注释
+- `src/qqq/optimization/qqqWfo.js` — 参数数量注释 + totalCombos
+- `src/qqq/QqqRotationTab.jsx` — UI 文字 + progress total
+- `src/etf/EtfStrategyTab.jsx` — UI 文字 + progress total
+
+动能计算逻辑不变（仍为单一回看期），仅扩展可选参数范围。
 
 ---
 

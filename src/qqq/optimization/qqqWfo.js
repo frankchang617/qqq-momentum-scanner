@@ -2,7 +2,7 @@
  * qqqWfo.js — QQQ 成分股轮转 Walk Forward Optimization
  *
  * 单窗口设计：前 70% in-sample / 后 30% out-of-sample
- *  ① IS 期跑 Grid Search（144 种组合）
+ *  ① IS 期跑 Grid Search（288 种组合）
  *  ② 按 optMetric 选最佳参数
  *  ③ 固定参数跑 OOS（不重新选参，不事后调整）
  *  ④ 记录 OOS 绩效
@@ -40,7 +40,7 @@ export async function runQqqWFO(histData, timestamps, optMetric = 'sharpe', onPr
     return m.sharpe; // 默认 Sharpe
   };
 
-  // ── Step 1: IS 期 Grid Search（144 种组合）──
+  // ── Step 1: IS 期 Grid Search（288 种组合）──
   const allParams = getQqqRotationParams();
   const total = allParams.length;
   const inResults = [];
@@ -113,7 +113,7 @@ export async function runQqqWFO(histData, timestamps, optMetric = 'sharpe', onPr
     qqqCombinedMetrics:  qqqOosMetrics,
     qqqWfoEq:            qqqOosEq,
     optMetric,
-    totalCombos:         144,
+    totalCombos:         288,
     windowCount:         1,
     inDays,
     outDays,

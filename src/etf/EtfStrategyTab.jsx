@@ -742,7 +742,7 @@ function VolControlPanel({ etfData, T, pendingOverride }) {
 function OptimizePanel({ etfData, T, darkMode, onApply }) {
   const [results, setResults]       = useState([]);
   const [running, setRunning]       = useState(false);
-  const [progress, setProgress]     = useState({ done: 0, total: 86 });
+  const [progress, setProgress]     = useState({ done: 0, total: 131 });
   const [best, setBest]             = useState(null);
   const [section, setSection]       = useState('ranking');
   const [heatmapMetric, setHeatmapMetric] = useState('sharpe');
@@ -752,7 +752,7 @@ function OptimizePanel({ etfData, T, darkMode, onApply }) {
     if (!etfData || running) return;
     abortRef.current = false;
     setRunning(true);
-    setProgress({ done: 0, total: 86 });
+    setProgress({ done: 0, total: 131 });
     setResults([]);
     setBest(null);
 
@@ -780,7 +780,7 @@ function OptimizePanel({ etfData, T, darkMode, onApply }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
-        一键遍历全部 <strong style={{ color: T.textBright }}>86 种</strong> 参数组合（三策略合并），
+        一键遍历全部 <strong style={{ color: T.textBright }}>131 种</strong> 参数组合（三策略合并），
         按百分位综合评分（Sharpe×40% + MDD×35% + CAGR×25%）排名。
       </div>
 
@@ -941,7 +941,7 @@ function WfoPanel({ etfData, T }) {
         </span>
         <br />
         <span style={{ color: '#e8883a', fontSize: 11 }}>
-          ⚠ 10年数据约 6～7 个窗口，每窗口内 IS 跑 86 种组合，耗时约 1～2 分钟。
+          ⚠ 10年数据约 6～7 个窗口，每窗口内 IS 跑 131 种组合，耗时约 1～2 分钟。
         </span>
       </div>
 
@@ -1299,7 +1299,7 @@ export default function EtfStrategyTab({ T, darkMode }) {
             }}
           >
             <span style={{ color: '#4488ee', fontWeight: 700 }}>{showOpt ? '▼' : '▶'}</span>
-            参数全量扫描（一键优化，86 种组合）
+            参数全量扫描（一键优化，131 种组合）
             <span style={{ fontSize: 10, color: T.textMuted, marginLeft: 4 }}>
               — 三策略合并，百分位综合评分
             </span>

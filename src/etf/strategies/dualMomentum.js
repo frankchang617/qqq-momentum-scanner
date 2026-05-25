@@ -13,7 +13,7 @@
 
 export const DUAL_MOMENTUM_UNIVERSE = ['QQQ','SPY','XLK','DXJ','TLT','GLD','SHY','TSM'];
 export const DUAL_MOMENTUM_PARAM_GRID = {
-  lookback:       [63, 126, 252],       // 3M, 6M, 12M
+  lookback:       [20, 50, 63, 126, 200, 252], // 20D,50D,3M,6M,200D,12M
   maFilter:       [100, 200],
   defensiveAsset: ['SHY', 'GLD', 'CASH'],
 };
