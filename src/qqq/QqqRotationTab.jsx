@@ -504,7 +504,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
           <ParamRow label="动能回看期" T={T} value={params.lookback} onChange={v => setParams(p => ({ ...p, lookback: v }))}
-            options={[{ value: 21, label: '1个月' }, { value: 63, label: '3个月' }, { value: 126, label: '6个月' }]} />
+            options={[{ value: 20, label: '20日' }, { value: 21, label: '1个月' }, { value: 50, label: '50日' }, { value: 63, label: '3个月' }, { value: 126, label: '6个月' }, { value: 200, label: '200日' }]} />
           <ParamRow label="持仓数量" T={T} value={params.topN} onChange={v => setParams(p => ({ ...p, topN: v }))}
             options={[{ value: 1, label: 'Top 1' }, { value: 3, label: 'Top 3' }, { value: 5, label: 'Top 5' }, { value: 10, label: 'Top 10' }]} />
           <ParamRow label="调仓频率" T={T} value={params.rebalFreq} onChange={v => setParams(p => ({ ...p, rebalFreq: v }))}
@@ -892,7 +892,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
               const qm = wfoResult.qqqCombinedMetrics;
               const optLabel = { sharpe: 'Sharpe', cagr: 'CAGR', calmar: 'Calmar' }[wfoResult.optMetric] || wfoResult.optMetric;
 
-              const lbLabel  = p => ({ 21: '1M', 63: '3M', 126: '6M' }[p.lookback] ?? `${p.lookback}D`);
+              const lbLabel  = p => ({ 20: '20D', 21: '1M', 50: '50D', 63: '3M', 126: '6M', 200: '200D' }[p.lookback] ?? `${p.lookback}D`);
               const rfLabel  = p => ({ 5: '每周', 10: '每两周', 21: '每月' }[p.rebalFreq] ?? `${p.rebalFreq}D`);
               const mfLabel  = p => p.marketFilter ? `SMA200→${p.defensiveAsset}` : '无过滤';
               const fmtDate  = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '—';

@@ -398,9 +398,12 @@ function ResultsPanel({ result, qqqMetrics, spyMetrics, T }) {
 // ── 策略1面板：强势轮动 ──
 function MomentumPanel({ etfData, T, pendingOverride }) {
   const LOOKBACK_OPTS = [
+    { val: 20, label: '20D（20日）' },
     { val: 21, label: '1M（21日）' },
+    { val: 50, label: '50D（50日）' },
     { val: 63, label: '3M（63日）' },
     { val: 126, label: '6M（126日）' },
+    { val: 200, label: '200D（200日）' },
     { val: 252, label: '12M（252日）' },
   ];
   const [params, setParams] = useState({ lookback: 63, topN: 1, defensiveAsset: 'SHY' });
@@ -557,7 +560,7 @@ function DualMomentumPanel({ etfData, T, pendingOverride }) {
         <div>
           <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>回看期</div>
           <div style={{ display: 'flex', gap: 6 }}>
-            {[{val:63,label:'3M'},{val:126,label:'6M'},{val:252,label:'12M'}].map(o => (
+            {[{val:20,label:'20D'},{val:50,label:'50D'},{val:63,label:'3M'},{val:126,label:'6M'},{val:200,label:'200D'},{val:252,label:'12M'}].map(o => (
               <ParamBtn key={o.val} label={o.label} T={T}
                 active={params.lookback === o.val}
                 onClick={() => setParams(p => ({ ...p, lookback: o.val }))} />
