@@ -1194,6 +1194,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                             { h: 'OOS MDD',              group: 'oos',   note: 'Out-of-Sample' },
                             { h: 'OOS Total Ret',        group: 'oos',   note: 'Out-of-Sample' },
                             { h: 'QQQ CAGR',             group: '',      note: '同期基准' },
+                            { h: '操作',                 group: '',      note: '' },
                           ].map(({ h, group, note }) => (
                             <th key={h} style={{
                               padding: '6px 10px', textAlign: 'left', fontWeight: 500, fontSize: 9,
@@ -1236,6 +1237,20 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                               </td>
                               <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: (w.qqqOutMetrics?.cagr ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>
                                 {w.qqqOutMetrics ? fmtPct(w.qqqOutMetrics.cagr) : '—'}
+                              </td>
+                              <td style={{ padding: '5px 8px' }}>
+                                <button
+                                  onClick={() => handleApplyAndBacktest(bp)}
+                                  style={{
+                                    padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+                                    fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+                                    background: darkMode ? '#004488' : '#0055cc',
+                                    border: '1px solid #4488ee', color: '#fff',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  应用并回测
+                                </button>
                               </td>
                             </tr>
                           );

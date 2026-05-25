@@ -217,6 +217,16 @@ QQQ 曲线与策略曲线**等长**，保证像素精确对齐；各窗口衔接
 - 首次加载时显示「初始建仓」提示，不做 diff 对比
 - 资金流转：sellTotal = Σ(prevWeights × capital)，buyTotal = Σ(currWeights × capital)，netFlow = sellTotal − buyTotal
 
+#### WFO 窗口明细表新增「应用并回测」按钮
+
+| 文件 | 实现方式 |
+|------|---------|
+| `src/qqq/QqqRotationTab.jsx` | 直接调用已有 `handleApplyAndBacktest(bp)` |
+| `qqq-momentum.jsx` | `setStratParams(bp)` + `runStratBacktest(bp)` |
+| `src/etf/EtfStrategyTab.jsx` | WfoPanel 新增 `onApply` prop → `handleApplyAndRun` → `pendingOverride` 机制 |
+
+点击后参数自动同步到 Mode A 并立即触发回测。
+
 ---
 
 ## 下一步（待规划）

@@ -2244,6 +2244,7 @@ export default function App() {
                                   {h:"OOS MDD",      note:"Out-of-Sample",group:"oos"},
                                   {h:"OOS Total Ret",note:"Out-of-Sample",group:"oos"},
                                   {h:"QQQ CAGR",     note:"同期基准",      group:""},
+                                  {h:"操作",         note:"",               group:""},
                                 ].map(({h,note,group})=>(
                                   <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:500,fontSize:9,
                                     background:T.theadBg,boxShadow:`0 1px 0 ${T.border}`,whiteSpace:"nowrap",
@@ -2295,6 +2296,14 @@ export default function App() {
                                     <td style={{padding:"7px 10px",fontFamily:"monospace",
                                       color:w.qqqOutMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>
                                       {w.qqqOutMetrics?fmtPct(w.qqqOutMetrics.cagr,1):"—"}
+                                    </td>
+                                    <td style={{padding:"5px 8px"}}>
+                                      <button onClick={()=>{const p={...bp};setStratParams(p);runStratBacktest(p);}} style={{padding:"3px 10px",borderRadius:4,cursor:"pointer",
+                                        fontFamily:"inherit",fontSize:10,fontWeight:600,
+                                        background:darkMode?"#004488":"#0055cc",
+                                        border:"1px solid #4488ee",color:"#fff",whiteSpace:"nowrap"}}>
+                                        应用并回测
+                                      </button>
                                     </td>
                                   </tr>
                                 );

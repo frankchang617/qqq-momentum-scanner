@@ -1199,7 +1199,7 @@ function OptimizePanel({ etfData, T, darkMode, onApply }) {
 }
 
 // ── Walk Forward 面板 ──
-function WfoPanel({ etfData, T }) {
+function WfoPanel({ etfData, T, onApply }) {
   const [optMetric, setOptMetric] = useState('sharpe');
   const [wfoResult, setWfoResult] = useState(null);
   const [running, setRunning]     = useState(false);
@@ -1355,6 +1355,7 @@ function WfoPanel({ etfData, T }) {
                       { h: 'OOS CAGR',        sub: '' },
                       { h: 'OOS Sharpe',      sub: '' },
                       { h: 'OOS MDD',         sub: '' },
+                      { h: '操作',           sub: '' },
                     ].map(({ h, sub }) => (
                       <th key={h} style={{
                         padding: '7px 10px', textAlign: 'left',
@@ -1402,6 +1403,18 @@ function WfoPanel({ etfData, T }) {
                         </td>
                         <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#ee4444' }}>
                           {fmtPct(w.oosMdd)}
+                        </td>
+                        <td style={{ padding: '5px 8px' }}>
+                          {onApply && (
+                            <button onClick={() => onApply({ params: w.isBestParams })} style={{
+                              padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+                              fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+                              background: '#0055cc', border: '1px solid #4488ee', color: '#fff',
+                              whiteSpace: 'nowrap',
+                            }}>
+                              应用并回测
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1639,7 +1652,7 @@ export default function EtfStrategyTab({ T, darkMode }) {
               border: `1px solid ${T.border}`, borderTop: 'none',
               borderRadius: '0 0 8px 8px',
             }}>
-              <WfoPanel etfData={etfData} T={T} darkMode={darkMode} />
+              <WfoPanel etfData={etfData} T={T} darkMode={darkMode} onApply={handleApplyAndRun} />
             </div>
           )}
         </div>
