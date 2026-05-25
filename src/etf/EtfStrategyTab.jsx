@@ -12,6 +12,9 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 
+// 共享组件
+import WfoSummaryTable from '../shared/WfoSummaryTable.jsx';
+
 // 数据层
 import { fetchEtfData, ETF_SYMBOLS } from './data/fetchEtfData.js';
 
@@ -1199,7 +1202,7 @@ function OptimizePanel({ etfData, T, darkMode, onApply }) {
 }
 
 // ── Walk Forward 面板 ──
-function WfoPanel({ etfData, T, onApply }) {
+function WfoPanel({ etfData, T, darkMode, onApply }) {
   const [optMetric, setOptMetric] = useState('sharpe');
   const [wfoResult, setWfoResult] = useState(null);
   const [running, setRunning]     = useState(false);
@@ -1275,17 +1278,11 @@ function WfoPanel({ etfData, T, onApply }) {
 
       {wfoResult && !wfoResult.error && (
         <>
-          {/* OOS 总绩效 */}
+          {/* OOS 净值曲线 + Performance Summary */}
           {wfoResult.combinedMetrics && (
             <div>
-              <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 10 }}>
                 串接 OOS 总绩效（{wfoResult.windowCount} 个窗口）
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-                <MetricCard label="OOS CAGR"   value={wfoResult.combinedMetrics.cagr}   fmt="pct" T={T} />
-                <MetricCard label="OOS Sharpe"  value={wfoResult.combinedMetrics.sharpe} fmt="num" T={T} />
-                <MetricCard label="OOS MDD"     value={wfoResult.combinedMetrics.mdd}    fmt="pct" alwaysRed T={T} />
-                <MetricCard label="OOS 总收益"  value={wfoResult.combinedMetrics.totalReturn} fmt="pct" T={T} />
               </div>
 
               <EtfEquityChart
@@ -1293,6 +1290,15 @@ function WfoPanel({ etfData, T, onApply }) {
                 qqqEq={wfoResult.combinedQqqOosEquity}
                 timestamps={wfoResult.combinedOosTs}
                 T={T}
+              />
+
+              <WfoSummaryTable
+                cm={wfoResult.combinedMetrics}
+                benchmarks={[
+                  ...(wfoResult.qqqCombinedMetrics ? [{ label: 'QQQ 基准', metrics: wfoResult.qqqCombinedMetrics }] : []),
+                  ...(wfoResult.spyCombinedMetrics ? [{ label: 'SPY 基准', metrics: wfoResult.spyCombinedMetrics }] : []),
+                ]}
+                T={T} darkMode={darkMode}
               />
             </div>
           )}

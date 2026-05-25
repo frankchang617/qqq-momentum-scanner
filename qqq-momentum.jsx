@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useMemo, useId, useEffect, Fragment } from "react";
 import EtfStrategyTab from "./src/etf/EtfStrategyTab.jsx";
 import QqqRotationTab from "./src/qqq/QqqRotationTab.jsx";
+import WfoSummaryTable from "./src/shared/WfoSummaryTable.jsx";
 
 // Nasdaq-100 components (updated May 2026, 101 symbols incl. GOOGL/GOOG dual class)
 const QQQ_COMPONENTS = [
@@ -2312,19 +2313,6 @@ export default function App() {
                           </table>
                         </div>
 
-                        {/* ── WFO 总绩效（所有 OOS 串接）── */}
-                        <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:8}}>
-                          Mode B · WFO Combined OOS 绩效（所有 out-of-sample 串接，无事后挑选）
-                        </div>
-                        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-                          {cm&&[
-                            {label:"Combined OOS CAGR",   strat:cm.cagr,  qqq:qm?.cagr,  unit:"%", fmtFn:v=>v.toFixed(1)},
-                            {label:"Combined OOS Sharpe", strat:cm.sharpe,qqq:qm?.sharpe,unit:"",  fmtFn:v=>v.toFixed(2)},
-                            {label:"Combined OOS MDD",    strat:cm.mdd,   qqq:qm?.mdd,   unit:"%", higherBetter:true,fmtFn:v=>v.toFixed(1), alwaysRed:true},
-                            {label:"Combined OOS 总收益", strat:cm.total, qqq:qm?.total,  unit:"%", fmtFn:v=>v.toFixed(1)},
-                          ].map((s,i)=><MetricCard key={i} {...s}/>)}
-                        </div>
-
                         {/* WFO OOS 净值曲线 */}
                         {wfoResult.allOutEquity.length>10&&(
                           <div style={{background:T.cardBg2,border:`1px solid ${T.border}`,borderRadius:8,padding:"14px 16px",overflowX:"auto",marginBottom:12}}>
@@ -2334,6 +2322,20 @@ export default function App() {
                             <EquityCurveChart stratEq={wfoResult.allOutEquity} qqqEq={wfoResult.qqqWfoEq} timestamps={wfoResult.allOutTs} T={T}/>
                           </div>
                         )}
+
+                        {/* Mode B vs QQQ Performance Summary */}
+                        {cm&&(()=>{
+                          // calcPortMetrics 返回百分比格式，需 ÷100 转为 decimal 传入 WfoSummaryTable
+                          const normCm = { cagr:cm.cagr/100, sharpe:cm.sharpe, mdd:cm.mdd/100, totalReturn:cm.total/100 };
+                          const normQm = qm ? { cagr:qm.cagr/100, sharpe:qm.sharpe, mdd:qm.mdd/100, totalReturn:qm.total/100 } : null;
+                          return (
+                            <WfoSummaryTable
+                              cm={normCm}
+                              benchmarks={normQm ? [{ label:'QQQ 基准', metrics:normQm }] : []}
+                              T={T} darkMode={darkMode}
+                            />
+                          );
+                        })()}
 
                         {/* Mode A vs Mode B 对比卡 */}
                         {stratResult?.metrics&&cm&&(()=>{

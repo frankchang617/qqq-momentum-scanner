@@ -73,6 +73,7 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
   const combinedOosEquity    = [];
   const combinedOosTs        = [];
   const combinedQqqOosEquity = []; // QQQ 买持基准（与策略曲线等长，用于图表对比）
+  const combinedSpyOosEquity = []; // SPY 买持基准（与策略曲线等长，用于图表对比）
 
   for (let wi = 0; wi < windows.length; wi++) {
     const { isStart, isEnd, oosStart, oosEnd } = windows[wi];
@@ -123,24 +124,22 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
       combinedOosTs.push(oosBt.timestamps[i]);
     });
 
-    // ── Step 4b: 同步串接 QQQ 买持基准（与策略曲线等长，对齐同一组时间戳）──
-    const qqqCloses = closes['QQQ'];
-    if (qqqCloses) {
-      const qqqWindow = oosBt.timestamps.map(ts => {
+    // ── Step 4b: 同步串接 QQQ / SPY 买持基准（与策略曲线等长，对齐同一组时间戳）──
+    const appendBenchmark = (rawCloses, combinedArr) => {
+      if (!rawCloses) return;
+      const window = oosBt.timestamps.map(ts => {
         const idx = tsIndexMap.get(ts);
-        return idx != null ? (qqqCloses[idx] ?? null) : null;
+        return idx != null ? (rawCloses[idx] ?? null) : null;
       });
-      const hasData = qqqWindow.length > 0 && qqqWindow[0] != null;
-      if (hasData) {
-        const lastQqq = combinedQqqOosEquity.length > 0
-          ? combinedQqqOosEquity[combinedQqqOosEquity.length - 1]
-          : 1.0;
-        const qqqScale = lastQqq / qqqWindow[0]; // 从上一段结尾处接续
-        qqqWindow.forEach(p => combinedQqqOosEquity.push(
-          p != null ? p * qqqScale : combinedQqqOosEquity[combinedQqqOosEquity.length - 1] ?? 1.0
-        ));
-      }
-    }
+      if (window.length === 0 || window[0] == null) return;
+      const lastVal = combinedArr.length > 0 ? combinedArr[combinedArr.length - 1] : 1.0;
+      const scale   = lastVal / window[0];
+      window.forEach(p => combinedArr.push(
+        p != null ? p * scale : combinedArr[combinedArr.length - 1] ?? 1.0
+      ));
+    };
+    appendBenchmark(closes['QQQ'], combinedQqqOosEquity);
+    appendBenchmark(closes['SPY'], combinedSpyOosEquity);
 
     windowResults.push({
       window: wi + 1,
@@ -171,9 +170,17 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
   onProgress?.(windows.length, windows.length, 'done');
 
   // ── 串接 OOS 总绩效 ──
-  let combinedMetrics = null;
+  let combinedMetrics    = null;
+  let qqqCombinedMetrics = null;
+  let spyCombinedMetrics = null;
   if (combinedOosEquity.length > 10) {
     combinedMetrics = calcMetrics(combinedOosEquity, combinedOosTs);
+  }
+  if (combinedQqqOosEquity.length > 10) {
+    qqqCombinedMetrics = calcMetrics(combinedQqqOosEquity, combinedOosTs);
+  }
+  if (combinedSpyOosEquity.length > 10) {
+    spyCombinedMetrics = calcMetrics(combinedSpyOosEquity, combinedOosTs);
   }
 
   // ── WFO 稳定性指标 ──
@@ -183,7 +190,10 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
     combinedOosEquity,
     combinedOosTs,
     combinedQqqOosEquity: combinedQqqOosEquity.length > 0 ? combinedQqqOosEquity : null,
+    combinedSpyOosEquity: combinedSpyOosEquity.length > 0 ? combinedSpyOosEquity : null,
     combinedMetrics,
+    qqqCombinedMetrics,
+    spyCombinedMetrics,
     windowResults,
     windowCount: windowResults.length,
     optMetric,

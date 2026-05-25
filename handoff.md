@@ -298,6 +298,34 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 
 ---
 
+## 🚧 Session 15 进行中（2026-05-25）
+
+### 全策略 WFO Performance Summary 统一改版
+
+将所有策略的 Mode B 绩效展示统一为精美对比表，覆盖 5 个策略。
+
+#### 方案确认
+- **共享组件**：`src/shared/WfoSummaryTable.jsx`，4 个策略共用
+- **QQQ轮转 / QQQ成分股**：策略 OOS vs QQQ 基准（2列）
+- **ETF三策略**：策略 OOS vs QQQ 基准 vs SPY 基准（3列）
+- **胜出徽章**：`vs QQQ: X/N 项 · vs SPY: Y/N 项`（分开显示）
+- **ETF wfo.js**：需新增 SPY 基准追踪（`combinedSpyOosEquity` + `spyCombinedMetrics`）
+
+#### 当前进度
+| 步骤 | 状态 |
+|------|------|
+| 1. 创建 `src/shared/WfoSummaryTable.jsx` | ✅ |
+| 2. `src/etf/optimization/wfo.js` 加 SPY 追踪 | ✅ |
+| 3. `src/qqq/QqqRotationTab.jsx` 改 import + 删本地定义 | ✅ |
+| 4. `qqq-momentum.jsx` 接入共享组件 | ✅ |
+| 5. `src/etf/EtfStrategyTab.jsx` 接入双基准 | 🚧 进行中 |
+
+#### 格式注意
+- QqqRotationTab / EtfStrategyTab 的 metrics 为小数（decimal）
+- qqq-momentum.jsx 的 `calcPortMetrics` 返回百分比（%），需 ÷100 归一化再传入
+
+---
+
 ## 下一步（待规划）
 
 所有规划功能已全部完成，可根据需要开展新功能或优化。
