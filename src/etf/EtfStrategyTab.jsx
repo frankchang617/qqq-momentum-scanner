@@ -1288,6 +1288,7 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
               <EtfEquityChart
                 stratEq={wfoResult.combinedOosEquity}
                 qqqEq={wfoResult.combinedQqqOosEquity}
+                spyEq={wfoResult.combinedSpyOosEquity}
                 timestamps={wfoResult.combinedOosTs}
                 T={T}
               />
