@@ -284,7 +284,7 @@ function SignalCard({ etfData, strategy, params, T }) {
       </div>
 
       {/* 下次检查提示 */}
-      <div style={{ marginTop: 12, fontSize: 10, color: T.textVMuted || T.textMuted }}>
+      <div style={{ marginTop: 12, fontSize: 10, color: T.textMuted }}>
         {signal.rebalFreq === 'daily'
           ? '⏰ 每个交易日收盘后检查波动率，档位变化则次日调仓；无变化则持仓不动'
           : '⏰ 月调仓策略：每 21 个交易日（约 1 个月）检查一次，信号不变则无需操作'}
@@ -1068,7 +1068,7 @@ function WfoPanel({ etfData, T }) {
                         whiteSpace: 'nowrap',
                       }}>
                         {h}
-                        {sub && <div style={{ fontSize: 9, color: T.textVMuted ?? T.textMuted, fontWeight: 400, marginTop: 1 }}>{sub}</div>}
+                        {sub && <div style={{ fontSize: 9, color: T.textMuted, fontWeight: 400, marginTop: 1 }}>{sub}</div>}
                       </th>
                     ))}
                   </tr>
@@ -1300,7 +1300,7 @@ export default function EtfStrategyTab({ T, darkMode }) {
           >
             <span style={{ color: '#4488ee', fontWeight: 700 }}>{showOpt ? '▼' : '▶'}</span>
             参数全量扫描（一键优化，86 种组合）
-            <span style={{ fontSize: 10, color: T.textVMuted || T.textMuted, marginLeft: 4 }}>
+            <span style={{ fontSize: 10, color: T.textMuted, marginLeft: 4 }}>
               — 三策略合并，百分位综合评分
             </span>
           </button>

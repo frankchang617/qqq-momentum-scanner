@@ -49,7 +49,7 @@ export default function EtfEquityChart({ stratEq, qqqEq, spyEq, timestamps, T })
           <line x1={PAD.l} y1={ty(v)} x2={PAD.l + iw} y2={ty(v)}
             stroke={T.border} strokeWidth="0.5" strokeDasharray="3,3" />
           <text x={PAD.l - 5} y={ty(v) + 4} textAnchor="end"
-            fill={T.textVMuted} fontSize={9}>
+            fill={T.textMuted} fontSize={9}>
             {((v - 1) * 100).toFixed(0)}%
           </text>
         </Fragment>
@@ -63,9 +63,9 @@ export default function EtfEquityChart({ stratEq, qqqEq, spyEq, timestamps, T })
       {timeTicks.map((tick, i) => (
         <Fragment key={i}>
           <line x1={tick.x} y1={PAD.t + ih} x2={tick.x} y2={PAD.t + ih + 5}
-            stroke={T.textVMuted} strokeWidth="0.5" />
+            stroke={T.textMuted} strokeWidth="0.5" />
           <text x={tick.x} y={PAD.t + ih + 16} textAnchor="middle"
-            fill={T.textVMuted} fontSize={9}>{tick.label}</text>
+            fill={T.textMuted} fontSize={9}>{tick.label}</text>
         </Fragment>
       ))}
 

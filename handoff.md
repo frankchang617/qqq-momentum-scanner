@@ -162,6 +162,41 @@ ETF WFO 改为单窗口 70/30，表格拆成 4 列，支持 10 年数据。
 
 ---
 
+## 🔧 Session 10 进行中（2026-05-25）— 全局暗色模式文字可读性修复
+
+### 问题范围
+`textVMuted`（暗色模式 `#405870`）对比度不足，全项目共 ~38 处需升级。
+
+### 待修改文件
+- `qqq-momentum.jsx`：32处（SVG图表轴标签、UI标签、表头、说明文字、数据占位符）
+- `src/etf/EtfStrategyTab.jsx`：3处
+- `src/etf/ui/charts/EtfEquityChart.jsx`：3处（轴标签/刻度）
+- `src/etf/ui/charts/EtfDrawdownChart.jsx`：3处（轴标签/刻度）
+
+### 升级原则
+| 类型 | 原颜色 | 目标颜色 |
+|------|--------|--------|
+| SVG图表轴标签（Y轴数值、X轴年份） | textVMuted #405870 | textMuted #6a8090 |
+| UI参数标签、描述文字、说明文字 | textVMuted | textMuted |
+| 表格列头、操作标签（入场/出场/CAGR等） | textVMuted | textSub #7a9aaa |
+| 数据占位符"—"、状态文字、无数据提示 | textVMuted | textSub |
+| 脚注/免责声明（极小字体） | textVMuted | textMuted |
+
+**状态**：✅ 全部完成并验证
+
+### 修改汇总
+
+| 文件 | 处数 | 方式 |
+|------|------|------|
+| `qqq-momentum.jsx` | 31处 | SVG fill/stroke 用 replace_all；UI 文字逐条处理 |
+| `src/etf/EtfStrategyTab.jsx` | 3处 | 逐条替换 |
+| `src/etf/ui/charts/EtfEquityChart.jsx` | 3处 | replace_all |
+| `src/etf/ui/charts/EtfDrawdownChart.jsx` | 3处 | replace_all |
+
+**刻意保留**：`qqq-momentum.jsx:321` 月度热图空值色（`v==null?T.textVMuted`），无数据格用极暗色区分是正确的视觉设计。
+
+---
+
 ## 下一步（待规划）
 
 所有规划功能已全部完成，可根据需要开展新功能或优化。

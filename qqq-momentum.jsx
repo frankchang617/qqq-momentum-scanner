@@ -186,7 +186,7 @@ function EquityCurveChart({ stratEq, qqqEq, timestamps, T }) {
       {ticks.map((v,i) => (
         <Fragment key={i}>
           <line x1={pad.l} y1={ty(v)} x2={pad.l+iw} y2={ty(v)} stroke={T.border} strokeWidth="0.5" strokeDasharray="3,3"/>
-          <text x={pad.l-4} y={ty(v)+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>{((v-1)*100).toFixed(0)}%</text>
+          <text x={pad.l-4} y={ty(v)+4} textAnchor="end" fill={T.textMuted} fontSize={9}>{((v-1)*100).toFixed(0)}%</text>
         </Fragment>
       ))}
       {/* 横轴基线 */}
@@ -194,8 +194,8 @@ function EquityCurveChart({ stratEq, qqqEq, timestamps, T }) {
       {/* 时间刻度 */}
       {timeTicks.map((tick, i) => (
         <Fragment key={i}>
-          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textVMuted} strokeWidth="0.5"/>
-          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textVMuted} fontSize={9}>{tick.label}</text>
+          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textMuted} strokeWidth="0.5"/>
+          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textMuted} fontSize={9}>{tick.label}</text>
         </Fragment>
       ))}
       <polyline points={qp} fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeDasharray="5,3" opacity="0.7"/>
@@ -238,15 +238,15 @@ function DrawdownChart({ drawdowns, timestamps, T }) {
       <line x1={pad.l} y1={pad.t} x2={pad.l+iw} y2={pad.t} stroke={T.border} strokeWidth="0.5"/>
       <polygon points={fill} fill="#ee334428"/>
       <polyline points={pts} fill="none" stroke="#ee3344" strokeWidth="1.5"/>
-      <text x={pad.l-4} y={ty(minV)+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>{minV.toFixed(1)}%</text>
-      <text x={pad.l-4} y={pad.t+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>0%</text>
+      <text x={pad.l-4} y={ty(minV)+4} textAnchor="end" fill={T.textMuted} fontSize={9}>{minV.toFixed(1)}%</text>
+      <text x={pad.l-4} y={pad.t+4} textAnchor="end" fill={T.textMuted} fontSize={9}>0%</text>
       {/* 横轴基线 */}
       <line x1={pad.l} y1={pad.t+ih} x2={pad.l+iw} y2={pad.t+ih} stroke={T.borderMuted} strokeWidth="0.5"/>
       {/* 时间刻度 */}
       {timeTicks.map((tick, i) => (
         <Fragment key={i}>
-          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textVMuted} strokeWidth="0.5"/>
-          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textVMuted} fontSize={9}>{tick.label}</text>
+          <line x1={tick.x} y1={pad.t+ih} x2={tick.x} y2={pad.t+ih+5} stroke={T.textMuted} strokeWidth="0.5"/>
+          <text x={tick.x} y={pad.t+ih+16} textAnchor="middle" fill={T.textMuted} fontSize={9}>{tick.label}</text>
         </Fragment>
       ))}
     </svg>
@@ -266,7 +266,7 @@ function AnnualBarsChart({ stratAnnual, qqqAnnual, T }) {
   return (
     <svg width={W} height={H} style={{display:"block"}}>
       <line x1={pad.l} y1={zY} x2={pad.l+iw} y2={zY} stroke={T.border} strokeWidth="1"/>
-      <text x={pad.l-4} y={zY+4} textAnchor="end" fill={T.textVMuted} fontSize={9}>0%</text>
+      <text x={pad.l-4} y={zY+4} textAnchor="end" fill={T.textMuted} fontSize={9}>0%</text>
       {years.map((yr, i) => {
         const sv = stratAnnual[yr] ?? 0;
         const qv = qqqAnnual[yr] ?? 0;
@@ -279,7 +279,7 @@ function AnnualBarsChart({ stratAnnual, qqqAnnual, T }) {
               fill={sv>=0?"#4488ee99":"#ee334488"}/>
             <rect x={cx+1} y={qv>=0?zY-qvH:zY} width={bw} height={Math.abs(qvH)}
               fill={qv>=0?"#88aabb66":"#ee334444"}/>
-            <text x={cx} y={H-6} textAnchor="middle" fill={T.textVMuted} fontSize={9}>{yr}</text>
+            <text x={cx} y={H-6} textAnchor="middle" fill={T.textMuted} fontSize={9}>{yr}</text>
           </g>
         );
       })}
@@ -1010,7 +1010,7 @@ function QqqSignalCard({ histData, histTs, params, T, darkMode }) {
       </div>
 
       {/* 下次检查提示 */}
-      <div style={{marginTop:12,fontSize:10,color:T.textVMuted}}>
+      <div style={{marginTop:12,fontSize:10,color:T.textMuted}}>
         {signal.rebalFreq==='daily'   && '⏰ 每日调仓：每个交易日收盘后检查排名，有变化则次日调整'}
         {signal.rebalFreq==='weekly'  && '⏰ 每周调仓：每 5 个交易日检查一次，信号不变则持仓不动'}
         {signal.rebalFreq==='monthly' && '⏰ 月调仓：每 21 个交易日（约 1 个月）检查一次，信号不变无需操作'}
@@ -1413,7 +1413,7 @@ export default function App() {
                             const avoidOK=(row.ret200??0)>200||!allPos;
                             if(buyOK) return <span style={{padding:"3px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:darkMode?"#003a1a":"#d0ffea",border:"1px solid #00aa55",color:"#00aa55",whiteSpace:"nowrap"}}>买入参考</span>;
                             if(avoidOK) return <span style={{padding:"3px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:darkMode?"#2a1000":"#fff3e0",border:"1px solid #cc6600",color:"#cc6600",whiteSpace:"nowrap"}}>观望</span>;
-                            return <span style={{color:T.textVMuted,fontSize:11}}>—</span>;
+                            return <span style={{color:T.textSub,fontSize:11}}>—</span>;
                           })()}</td>
                           <td style={{...tdStyle,whiteSpace:"nowrap",borderBottom:bdrB}}>
                             {[row.ret20,row.ret50,row.ret200].map((v,di)=>(
@@ -1461,7 +1461,7 @@ export default function App() {
                                 <div style={{marginBottom:10}}>
                                   <div style={{fontSize:10,color:T.textSub,letterSpacing:1.2,marginBottom:6}}>回测 · 止损-9%常驻</div>
                                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-                                    <span style={{fontSize:10,color:T.textVMuted,minWidth:36}}>入场</span>
+                                    <span style={{fontSize:10,color:T.textMuted,minWidth:36}}>入场</span>
                                     {[{id:"touch",label:"触线即买"},{id:"bounce",label:"反弹确认再买"},{id:"impulse_touch",label:"冲量+触线"},{id:"impulse_bounce",label:"冲量+反弹确认"}].map(({id,label})=>(
                                       <button key={id} onClick={e=>{e.stopPropagation();setBtEntry(id);}} style={{padding:"3px 9px",fontSize:10,cursor:"pointer",fontFamily:"inherit",borderRadius:5,
                                         background:btEntry===id?(darkMode?"#1a0040":"#ede8ff"):"transparent",
@@ -1470,7 +1470,7 @@ export default function App() {
                                     ))}
                                   </div>
                                   <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                                    <span style={{fontSize:10,color:T.textVMuted,minWidth:36}}>出场</span>
+                                    <span style={{fontSize:10,color:T.textMuted,minWidth:36}}>出场</span>
                                     {[{id:"mabreak",label:"均线破位"},{id:"dollar",label:"固定金额追踪"},{id:"atr2",label:"ATR×2"},{id:"atr3",label:"ATR×3"},{id:"rsi70",label:"RSI>70"},{id:"macd",label:"MACD死叉"},{id:"trail7",label:"追踪7%"},{id:"fixed20",label:"固定20日"}].map(({id,label})=>(
                                       <button key={id} onClick={e=>{e.stopPropagation();setBtMode(id);}} style={{padding:"3px 9px",fontSize:10,cursor:"pointer",fontFamily:"inherit",borderRadius:5,
                                         background:btMode===id?(darkMode?"#001a4a":"#e0eaff"):"transparent",
@@ -1505,7 +1505,7 @@ export default function App() {
                                       </button>
                                     )}
                                     {btRange!=="1y"&&btLongData[`${row.symbol}_${btRange}`]&&(
-                                      <span style={{fontSize:10,color:T.textVMuted}}>{btLongData[`${row.symbol}_${btRange}`].length} 日</span>
+                                      <span style={{fontSize:10,color:T.textMuted}}>{btLongData[`${row.symbol}_${btRange}`].length} 日</span>
                                     )}
                                   </div>
                                   <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
@@ -1532,23 +1532,23 @@ export default function App() {
                                         <div style={{fontSize:10,color:"#4488ee",letterSpacing:1,marginBottom:6,fontWeight:600}}>
                                           {ma}日均线{btMode==="dollar"&&hasData&&<span style={{marginLeft:6,color:T.textSub,fontWeight:400}}>追踪{(r.dollarTrailPct*100).toFixed(0)}%</span>}
                                         </div>
-                                        {!hasData?<div style={{fontSize:11,color:T.textVMuted}}>{r?"无触发信号":"数据不足"}</div>:(
+                                        {!hasData?<div style={{fontSize:11,color:T.textMuted}}>{r?"无触发信号":"数据不足"}</div>:(
                                           <>
                                             <div style={{fontSize:11,color:T.textMuted,marginBottom:4}}>触发 <span style={{color:T.text,fontWeight:600}}>{r.n}</span> 次 · 均持 {r.avgDays}日</div>
                                             <div style={{fontSize:16,fontWeight:700,fontFamily:"monospace",color:r.avgRet>=0?"#00c96e":"#ee3344"}}>{fmtPct(r.avgRet)}</div>
                                             <div style={{fontSize:10,color:T.textMuted,marginTop:2,marginBottom:6}}>平均收益</div>
                                             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 10px",fontSize:10,marginBottom:6}}>
-                                              <span style={{color:T.textVMuted}}>CAGR</span>
+                                              <span style={{color:T.textSub}}>CAGR</span>
                                               <span style={{fontFamily:"monospace",color:r.cagr>=0?"#00aa44":"#ee3344"}}>{fmtPct(r.cagr,1)}</span>
-                                              <span style={{color:T.textVMuted}}>Sharpe</span>
+                                              <span style={{color:T.textSub}}>Sharpe</span>
                                               <span style={{fontFamily:"monospace",color:r.sharpe>=1?"#00aa44":r.sharpe>=0?"#aaaa33":"#ee3344"}}>{r.sharpe.toFixed(2)}</span>
-                                              <span style={{color:T.textVMuted}}>MDD</span>
+                                              <span style={{color:T.textSub}}>MDD</span>
                                               <span style={{fontFamily:"monospace",color:"#ee3344"}}>{r.mdd.toFixed(1)}%</span>
-                                              {qqqRet1Y!=null&&<><span style={{color:T.textVMuted}}>vs QQQ</span>
+                                              {qqqRet1Y!=null&&<><span style={{color:T.textSub}}>vs QQQ</span>
                                               <span style={{fontFamily:"monospace",color:(r.cagr-qqqRet1Y)>=0?"#00aa44":"#ee3344"}}>{fmtPct(r.cagr-qqqRet1Y,1)}</span></>}
                                             </div>
                                             <div style={{fontSize:11,color:r.winRate>=60?"#00aa44":r.winRate>=45?"#aaaa33":"#ee5522",marginBottom:4}}>胜率 {r.winRate.toFixed(0)}%</div>
-                                            <div style={{fontSize:10,color:T.textVMuted,marginBottom:cap>0?6:0}}>最好 <span style={{color:"#00c96e"}}>{fmtPct(r.best)}</span> · 最差 <span style={{color:"#ee3344"}}>{fmtPct(r.worst)}</span></div>
+                                            <div style={{fontSize:10,color:T.textMuted,marginBottom:cap>0?6:0}}>最好 <span style={{color:"#00c96e"}}>{fmtPct(r.best)}</span> · 最差 <span style={{color:"#ee3344"}}>{fmtPct(r.worst)}</span></div>
                                             {cap>0&&(()=>{
                                               const pnl=cap*r.totalRet/100;
                                               return <div style={{paddingTop:6,borderTop:`1px solid ${T.border}`,fontSize:11,color:T.textMuted}}>
@@ -1561,7 +1561,7 @@ export default function App() {
                                     );
                                   })}
                                 </div>
-                                <div style={{fontSize:10,color:T.textVMuted,marginTop:8}}>CAGR/Sharpe/MDD 基于顺序复利净值曲线（{btRange.replace("y","年")}） · vs QQQ 为扫描器1年涨幅差 · 不含手续费 · 仅供参考</div>
+                                <div style={{fontSize:10,color:T.textMuted,marginTop:8}}>CAGR/Sharpe/MDD 基于顺序复利净值曲线（{btRange.replace("y","年")}） · vs QQQ 为扫描器1年涨幅差 · 不含手续费 · 仅供参考</div>
                               </div>
                               {/* 止损计算器 */}
                               <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
@@ -1582,7 +1582,7 @@ export default function App() {
                                     );
                                   })()}
                                 </div>
-                                <div style={{fontSize:10,color:T.textVMuted,marginTop:6}}>止损线 = 买入价 × 91%（-9%触发）· 仅供参考，不构成投资建议</div>
+                                <div style={{fontSize:10,color:T.textMuted,marginTop:6}}>止损线 = 买入价 × 91%（-9%触发）· 仅供参考，不构成投资建议</div>
                               </div>
                             </td>
                           </tr>
@@ -1823,7 +1823,7 @@ export default function App() {
               </button>
               {showOpt&&(
                 <div style={{padding:"16px 20px",background:T.cardBg,border:`1px solid ${T.border}`,borderTop:"none",borderRadius:"0 0 8px 8px"}}>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:4}}>
+                  <div style={{fontSize:10,color:T.textMuted,marginBottom:4}}>
                     动能回看期×4 · TopN×7 · 调仓频率×4 · 市场过滤×4 = 448 种组合（全量历史数据）
                   </div>
                   <div style={{fontSize:10,color:"#cc8800",marginBottom:12}}>
@@ -1853,9 +1853,9 @@ export default function App() {
                             <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:10}}>
                               <thead>
                                 <tr>
-                                  <th style={{padding:"5px 10px",textAlign:"left",color:T.textVMuted,fontWeight:400}}>参数</th>
-                                  <th style={{padding:"5px 10px",textAlign:"right",color:T.textVMuted,fontWeight:400}}>{sec.title.split(" ")[0]}</th>
-                                  <th style={{padding:"5px 10px",textAlign:"right",color:T.textVMuted,fontWeight:400}}></th>
+                                  <th style={{padding:"5px 10px",textAlign:"left",color:T.textSub,fontWeight:400}}>参数</th>
+                                  <th style={{padding:"5px 10px",textAlign:"right",color:T.textSub,fontWeight:400}}>{sec.title.split(" ")[0]}</th>
+                                  <th style={{padding:"5px 10px",textAlign:"right",color:T.textSub,fontWeight:400}}></th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -1900,7 +1900,7 @@ export default function App() {
                 <div style={{padding:"16px 20px",background:T.cardBg,border:`1px solid ${T.border}`,borderTop:"none",borderRadius:"0 0 8px 8px"}}>
 
                   {/* 说明 */}
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:10,lineHeight:1.6}}>
+                  <div style={{fontSize:10,color:T.textMuted,marginBottom:10,lineHeight:1.6}}>
                     <b style={{color:T.textSub}}>单窗口 WFO 逻辑</b>（推荐先加载 10 年数据）：
                     ① 前 70% 数据做 in-sample，跑 Grid Search（448种组合）→
                     ② 按优化指标选最佳参数 →
@@ -1980,7 +1980,7 @@ export default function App() {
                                     background:T.theadBg,boxShadow:`0 1px 0 ${T.border}`,whiteSpace:"nowrap",
                                     color:group==="param"?"#cc99ff":group==="oos"?"#88bbff":T.textSub}}>
                                     {h}
-                                    {note&&<div style={{fontSize:8,color:T.textVMuted,fontWeight:400}}>{note}</div>}
+                                    {note&&<div style={{fontSize:8,color:T.textMuted,fontWeight:400}}>{note}</div>}
                                   </th>
                                 ))}
                               </tr>
@@ -1994,7 +1994,7 @@ export default function App() {
                                 const isScore=wfoResult.optMetric==='cagr'?w.inSampleCAGR:w.inSampleSharpe;
                                 return (
                                   <tr key={i} style={{background:i%2===0?T.cardBg:T.cardBg2}}>
-                                    <td style={{padding:"7px 10px",color:T.textVMuted,textAlign:"center",fontWeight:700}}>{w.winIdx}</td>
+                                    <td style={{padding:"7px 10px",color:T.textSub,textAlign:"center",fontWeight:700}}>{w.winIdx}</td>
                                     {/* ── IS 时间（2列）── */}
                                     <td style={{padding:"7px 10px",color:T.textMuted,whiteSpace:"nowrap"}}>{fmtDate(w.inTsStart)}</td>
                                     <td style={{padding:"7px 10px",color:T.textMuted,whiteSpace:"nowrap"}}>{fmtDate(w.inTsEnd)}</td>
