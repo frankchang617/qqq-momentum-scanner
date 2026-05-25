@@ -527,75 +527,6 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   const _data = histDataLocal || histData;
   const _ts   = histTsLocal   || histTs;
 
-  // ── 数据未加载 ──
-  if (!_data || !_ts || _ts.length === 0) {
-    const histPct = histProg.total > 0 ? Math.round(histProg.done / histProg.total * 100) : 0;
-    return (
-      <div style={{ padding: '20px 28px' }}>
-        <div style={{
-          padding: '8px 14px', borderRadius: 6, marginBottom: 20, fontSize: 11, color: '#cc8800',
-          background: darkMode ? '#1a1200' : '#fffbe6', border: '1px solid #cc880044',
-        }}>
-          ⚠️ 使用当前 QQQ 成分股回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
-        </div>
-
-        <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
-          <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 10 }}>STEP 0 · 加载历史数据</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: histLoading ? 12 : 0 }}>
-            <span style={{ fontSize: 11, color: T.textMuted }}>历史深度</span>
-            {['2y', '3y', '5y', '10y'].map(r => (
-              <button key={r} disabled={histLoading} onClick={() => setHistRange(r)} style={{
-                padding: '4px 12px', borderRadius: 4, cursor: histLoading ? 'not-allowed' : 'pointer',
-                fontFamily: 'inherit', fontSize: 11,
-                background: histRange === r ? (darkMode ? '#005bcc' : '#0055cc') : 'transparent',
-                border: `1px solid ${histRange === r ? '#4488ee' : T.btnBorder}`,
-                color: histRange === r ? '#fff' : T.btnColor,
-                fontWeight: histRange === r ? 600 : 400,
-              }}>
-                {r === '2y' ? '2年' : r === '3y' ? '3年' : r === '5y' ? '5年' : '10年'}
-                {r === '10y' && <span style={{ fontSize: 8, marginLeft: 3, color: '#aa66ff', fontWeight: 700 }}>WFO</span>}
-              </button>
-            ))}
-            <button disabled={histLoading} onClick={loadHistData} style={{
-              padding: '5px 16px', borderRadius: 6, cursor: histLoading ? 'not-allowed' : 'pointer',
-              fontFamily: 'inherit', fontSize: 11,
-              background: darkMode ? '#004488' : '#0055cc',
-              border: '1px solid #4488ee', color: darkMode ? '#88ccff' : '#ffffff',
-              opacity: histLoading ? 0.6 : 1,
-            }}>
-              {histLoading ? '加载中…' : '↓ 加载历史数据'}
-            </button>
-            {_data && !histLoading && (
-              <span style={{ fontSize: 11, color: '#00aa44' }}>
-                ✓ 已加载 {_data.size - 1} 只股票 × {histRange === '2y' ? '2年' : histRange === '3y' ? '3年' : histRange === '5y' ? '5年' : '10年'}数据
-              </span>
-            )}
-          </div>
-          {histLoading && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.textSub, marginBottom: 4 }}>
-                <span>正在拉取 {histProg.done} / {histProg.total}</span>
-                <span>{histPct}%</span>
-              </div>
-              <div style={{ height: 3, background: T.barTrack ?? '#333', borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ width: `${histPct}%`, height: '100%', background: 'linear-gradient(90deg,#005bcc,#00c96e)', borderRadius: 2 }} />
-              </div>
-            </div>
-          )}
-        </div>
-        {!histLoading && (
-          <div style={{ padding: '48px 28px', textAlign: 'center' }}>
-            <div style={{ fontSize: 22, marginBottom: 12 }}>📊</div>
-            <div style={{ fontSize: 14, color: T.textBright, marginBottom: 8 }}>请先加载历史数据</div>
-            <div style={{ fontSize: 11, color: T.textSub }}>
-              选择历史深度后点击「加载历史数据」，或切换到「QQQ 成分股轮动」标签页加载
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   // ── 运行手动回测 ──
   const handleRunBacktest = useCallback(() => {
     setBtRunning(true);
@@ -815,6 +746,75 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
 
   // ── 日期格式化 ──
   const fmtDate = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '—';
+
+  // ── 数据未加载 ──
+  if (!_data || !_ts || _ts.length === 0) {
+    const histPct = histProg.total > 0 ? Math.round(histProg.done / histProg.total * 100) : 0;
+    return (
+      <div style={{ padding: '20px 28px' }}>
+        <div style={{
+          padding: '8px 14px', borderRadius: 6, marginBottom: 20, fontSize: 11, color: '#cc8800',
+          background: darkMode ? '#1a1200' : '#fffbe6', border: '1px solid #cc880044',
+        }}>
+          ⚠️ 使用当前 QQQ 成分股回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
+        </div>
+
+        <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: T.textSub, letterSpacing: 1, marginBottom: 10 }}>STEP 0 · 加载历史数据</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: histLoading ? 12 : 0 }}>
+            <span style={{ fontSize: 11, color: T.textMuted }}>历史深度</span>
+            {['2y', '3y', '5y', '10y'].map(r => (
+              <button key={r} disabled={histLoading} onClick={() => setHistRange(r)} style={{
+                padding: '4px 12px', borderRadius: 4, cursor: histLoading ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit', fontSize: 11,
+                background: histRange === r ? (darkMode ? '#005bcc' : '#0055cc') : 'transparent',
+                border: `1px solid ${histRange === r ? '#4488ee' : T.btnBorder}`,
+                color: histRange === r ? '#fff' : T.btnColor,
+                fontWeight: histRange === r ? 600 : 400,
+              }}>
+                {r === '2y' ? '2年' : r === '3y' ? '3年' : r === '5y' ? '5年' : '10年'}
+                {r === '10y' && <span style={{ fontSize: 8, marginLeft: 3, color: '#aa66ff', fontWeight: 700 }}>WFO</span>}
+              </button>
+            ))}
+            <button disabled={histLoading} onClick={loadHistData} style={{
+              padding: '5px 16px', borderRadius: 6, cursor: histLoading ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', fontSize: 11,
+              background: darkMode ? '#004488' : '#0055cc',
+              border: '1px solid #4488ee', color: darkMode ? '#88ccff' : '#ffffff',
+              opacity: histLoading ? 0.6 : 1,
+            }}>
+              {histLoading ? '加载中…' : '↓ 加载历史数据'}
+            </button>
+            {_data && !histLoading && (
+              <span style={{ fontSize: 11, color: '#00aa44' }}>
+                ✓ 已加载 {_data.size - 1} 只股票 × {histRange === '2y' ? '2年' : histRange === '3y' ? '3年' : histRange === '5y' ? '5年' : '10年'}数据
+              </span>
+            )}
+          </div>
+          {histLoading && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.textSub, marginBottom: 4 }}>
+                <span>正在拉取 {histProg.done} / {histProg.total}</span>
+                <span>{histPct}%</span>
+              </div>
+              <div style={{ height: 3, background: T.barTrack ?? '#333', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ width: `${histPct}%`, height: '100%', background: 'linear-gradient(90deg,#005bcc,#00c96e)', borderRadius: 2 }} />
+              </div>
+            </div>
+          )}
+        </div>
+        {!histLoading && (
+          <div style={{ padding: '48px 28px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, marginBottom: 12 }}>📊</div>
+            <div style={{ fontSize: 14, color: T.textBright, marginBottom: 8 }}>请先加载历史数据</div>
+            <div style={{ fontSize: 11, color: T.textSub }}>
+              选择历史深度后点击「加载历史数据」，或切换到「QQQ 成分股轮动」标签页加载
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '20px 28px' }}>

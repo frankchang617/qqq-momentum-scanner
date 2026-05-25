@@ -243,6 +243,7 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 - 同时加载 SHY 数据供防御资产使用
 - 本地数据优先，回退到父组件传入的 props（保持兼容性）
 - 改动文件：`src/qqq/QqqRotationTab.jsx`（新增 QQQ_COMPONENTS、fetchCandlesExtended、本地状态和 loadHistData）
+- **fixup**：修复 React Hooks 顺序问题 — early return 移到所有 hooks 之后，避免首次渲染无数据时 hooks 数量不一致导致白屏崩溃
 
 ---
 
