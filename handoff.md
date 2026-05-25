@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-24 Session 8（回测修复 + 应用并回测按钮 + 图表对齐）
+更新时间：2026-05-25 Session 10（WFO QQQ基准线 + 全局暗色模式文字可读性）
 
 ## 项目结构
 
@@ -118,82 +118,31 @@ ETF WFO 改为单窗口 70/30，表格拆成 4 列，支持 10 年数据。
 
 ---
 
-## ✅ Session 10 完成（2026-05-25）
+## ✅ Session 10 完成（2026-05-25，commits `17d3c34` · `9b5251e`）
 
-### 修复：WFO 图表 QQQ 基准线缺失
-
-**问题根因**：
-- `EtfEquityChart` 组件已支持 `qqqEq` prop（条件渲染灰虚线）
-- 但 `WfoPanel` 调用时未传 `qqqEq`（只传了 `stratEq` + `timestamps`）
-- 图例里 `-- QQQ` 文字无条件渲染，导致"有图例没曲线"
-
-**修复内容**：
+### 1. 修复：ETF WFO 图表 QQQ 基准线缺失
 
 | 文件 | 改动 |
 |------|------|
-| `src/etf/optimization/wfo.js` | 预建 `tsIndexMap`（timestamp→index O(1)查找）；每个 OOS 窗口按 `oosBt.timestamps` 对齐提取 QQQ 价格，用相同 scale 串接为 `combinedQqqOosEquity`，随结果返回 |
-| `src/etf/EtfStrategyTab.jsx` | `WfoPanel` 中给 `EtfEquityChart` 传入 `qqqEq={wfoResult.combinedQqqOosEquity}` |
-| `src/etf/ui/charts/EtfEquityChart.jsx` | 图例中 QQQ 虚线条目改为有条件渲染（`{qqqEq && <>...</>}`），与 SPY 保持一致 |
+| `src/etf/optimization/wfo.js` | 预建 `tsIndexMap`（O(1)查找）；每个 OOS 窗口按 `oosBt.timestamps` 对齐提取 QQQ 价格，串接为 `combinedQqqOosEquity` 返回 |
+| `src/etf/EtfStrategyTab.jsx` | `WfoPanel` 补传 `qqqEq={wfoResult.combinedQqqOosEquity}` |
+| `src/etf/ui/charts/EtfEquityChart.jsx` | 图例 QQQ 虚线改为条件渲染 `{qqqEq && <>...</>}` |
 
-**关键设计**：QQQ 曲线与策略曲线**等长**（逐 timestamp 查找），保证两条线在同一坐标系下像素精确对齐。各 OOS 窗口首尾衔接采用与策略曲线相同的 `scale` 归一化逻辑。
+QQQ 曲线与策略曲线**等长**，保证像素精确对齐；各窗口衔接用相同 scale 归一化。
 
----
+### 2. 修复：全局暗色模式文字可读性（`textVMuted` → `textMuted`/`textSub`）
 
-## ✅ Session 10 补充（2026-05-25）
+`textVMuted`（暗色 `#405870`）对比度不足，共升级 **40 处**：
 
-### 修复：QQQ 成分股轮动 MODE A 暗色模式文字可读性
-
-**问题**：MODE A（Fixed Parameter Backtest）区域的参数标签文字使用 `T.textVMuted`（暗色模式 `#405870`），对比度过低，几乎不可见。
-
-**修复**：将 MODE A 内所有参数组标签及说明文字的颜色升级：
-
-| 文字内容 | 原颜色 | 新颜色 |
-|--------|--------|--------|
-| 副标题 "— 固定参数全程回测，不做优化" | `T.textVMuted` | `T.textMuted` |
-| 参数标签 "动能回看期" | `T.textVMuted` | `T.textMuted` |
-| 参数标签 "持仓数量 (TopN)" | `T.textVMuted` | `T.textMuted` |
-| 参数标签 "调仓频率" | `T.textVMuted` | `T.textMuted` |
-| 参数标签 "市场过滤（QQQ 跌破均线 → 转现金）" | `T.textVMuted` | `T.textMuted` |
-| 底部 "当前：{参数}" | `T.textVMuted` | `T.textSub` |
-
-暗色模式对照：`textVMuted=#405870` → `textMuted=#6a8090` / `textSub=#7a9aaa`
-
-**涉及文件**：`qqq-momentum.jsx`（MODE A 区块，5处修改）
-
----
-
-## 🔧 Session 10 进行中（2026-05-25）— 全局暗色模式文字可读性修复
-
-### 问题范围
-`textVMuted`（暗色模式 `#405870`）对比度不足，全项目共 ~38 处需升级。
-
-### 待修改文件
-- `qqq-momentum.jsx`：32处（SVG图表轴标签、UI标签、表头、说明文字、数据占位符）
-- `src/etf/EtfStrategyTab.jsx`：3处
-- `src/etf/ui/charts/EtfEquityChart.jsx`：3处（轴标签/刻度）
-- `src/etf/ui/charts/EtfDrawdownChart.jsx`：3处（轴标签/刻度）
-
-### 升级原则
-| 类型 | 原颜色 | 目标颜色 |
-|------|--------|--------|
-| SVG图表轴标签（Y轴数值、X轴年份） | textVMuted #405870 | textMuted #6a8090 |
-| UI参数标签、描述文字、说明文字 | textVMuted | textMuted |
-| 表格列头、操作标签（入场/出场/CAGR等） | textVMuted | textSub #7a9aaa |
-| 数据占位符"—"、状态文字、无数据提示 | textVMuted | textSub |
-| 脚注/免责声明（极小字体） | textVMuted | textMuted |
-
-**状态**：✅ 全部完成并验证
-
-### 修改汇总
-
-| 文件 | 处数 | 方式 |
+| 文件 | 处数 | 内容 |
 |------|------|------|
-| `qqq-momentum.jsx` | 31处 | SVG fill/stroke 用 replace_all；UI 文字逐条处理 |
-| `src/etf/EtfStrategyTab.jsx` | 3处 | 逐条替换 |
-| `src/etf/ui/charts/EtfEquityChart.jsx` | 3处 | replace_all |
-| `src/etf/ui/charts/EtfDrawdownChart.jsx` | 3处 | replace_all |
+| `qqq-momentum.jsx` | 36处 | SVG轴标签、MODE A参数标签、表头、操作标签、说明文字、脚注 |
+| `src/etf/EtfStrategyTab.jsx` | 3处 | 调仓频率提示、表头子标签、优化副标题 |
+| `src/etf/ui/charts/EtfEquityChart.jsx` | 3处 | Y轴数值、X轴年份刻度 |
+| `src/etf/ui/charts/EtfDrawdownChart.jsx` | 3处 | Y轴数值、X轴年份刻度 |
 
-**刻意保留**：`qqq-momentum.jsx:321` 月度热图空值色（`v==null?T.textVMuted`），无数据格用极暗色区分是正确的视觉设计。
+升级规则：SVG轴/说明文字 → `textMuted #6a8090`；表头/操作标签/数据值 → `textSub #7a9aaa`  
+**保留**：月度热图空值色（`v==null?T.textVMuted`，无数据格用极暗色是正确视觉语言）
 
 ---
 
