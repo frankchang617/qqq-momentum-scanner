@@ -111,6 +111,57 @@ ETF WFO 改为单窗口 70/30，表格拆成 4 列，支持 10 年数据。
 
 ---
 
+## ✅ Session 9 完成（2026-05-24）
+
+用户请求阅读并解释三大 ETF 策略的进出场逻辑（momentum / dualMomentum / volControl）。
+已完整读取三个策略文件，无代码变更。
+
+---
+
+## ✅ Session 10 完成（2026-05-25）
+
+### 修复：WFO 图表 QQQ 基准线缺失
+
+**问题根因**：
+- `EtfEquityChart` 组件已支持 `qqqEq` prop（条件渲染灰虚线）
+- 但 `WfoPanel` 调用时未传 `qqqEq`（只传了 `stratEq` + `timestamps`）
+- 图例里 `-- QQQ` 文字无条件渲染，导致"有图例没曲线"
+
+**修复内容**：
+
+| 文件 | 改动 |
+|------|------|
+| `src/etf/optimization/wfo.js` | 预建 `tsIndexMap`（timestamp→index O(1)查找）；每个 OOS 窗口按 `oosBt.timestamps` 对齐提取 QQQ 价格，用相同 scale 串接为 `combinedQqqOosEquity`，随结果返回 |
+| `src/etf/EtfStrategyTab.jsx` | `WfoPanel` 中给 `EtfEquityChart` 传入 `qqqEq={wfoResult.combinedQqqOosEquity}` |
+| `src/etf/ui/charts/EtfEquityChart.jsx` | 图例中 QQQ 虚线条目改为有条件渲染（`{qqqEq && <>...</>}`），与 SPY 保持一致 |
+
+**关键设计**：QQQ 曲线与策略曲线**等长**（逐 timestamp 查找），保证两条线在同一坐标系下像素精确对齐。各 OOS 窗口首尾衔接采用与策略曲线相同的 `scale` 归一化逻辑。
+
+---
+
+## ✅ Session 10 补充（2026-05-25）
+
+### 修复：QQQ 成分股轮动 MODE A 暗色模式文字可读性
+
+**问题**：MODE A（Fixed Parameter Backtest）区域的参数标签文字使用 `T.textVMuted`（暗色模式 `#405870`），对比度过低，几乎不可见。
+
+**修复**：将 MODE A 内所有参数组标签及说明文字的颜色升级：
+
+| 文字内容 | 原颜色 | 新颜色 |
+|--------|--------|--------|
+| 副标题 "— 固定参数全程回测，不做优化" | `T.textVMuted` | `T.textMuted` |
+| 参数标签 "动能回看期" | `T.textVMuted` | `T.textMuted` |
+| 参数标签 "持仓数量 (TopN)" | `T.textVMuted` | `T.textMuted` |
+| 参数标签 "调仓频率" | `T.textVMuted` | `T.textMuted` |
+| 参数标签 "市场过滤（QQQ 跌破均线 → 转现金）" | `T.textVMuted` | `T.textMuted` |
+| 底部 "当前：{参数}" | `T.textVMuted` | `T.textSub` |
+
+暗色模式对照：`textVMuted=#405870` → `textMuted=#6a8090` / `textSub=#7a9aaa`
+
+**涉及文件**：`qqq-momentum.jsx`（MODE A 区块，5处修改）
+
+---
+
 ## 下一步（待规划）
 
 所有规划功能已全部完成，可根据需要开展新功能或优化。

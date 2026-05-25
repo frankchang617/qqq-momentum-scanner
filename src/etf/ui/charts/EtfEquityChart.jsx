@@ -88,9 +88,11 @@ export default function EtfEquityChart({ stratEq, qqqEq, spyEq, timestamps, T })
       <line x1={PAD.l + 8}  y1={PAD.t + 10} x2={PAD.l + 24} y2={PAD.t + 10} stroke="#4488ee" strokeWidth="2.2" />
       <text x={PAD.l + 28} y={PAD.t + 14} fill={T.textSub} fontSize={10}>策略</text>
 
-      <line x1={PAD.l + 64} y1={PAD.t + 10} x2={PAD.l + 80} y2={PAD.t + 10}
-        stroke={T.textMuted} strokeWidth="1.5" strokeDasharray="5,3" />
-      <text x={PAD.l + 84} y={PAD.t + 14} fill={T.textSub} fontSize={10}>QQQ</text>
+      {qqqEq && <>
+        <line x1={PAD.l + 64} y1={PAD.t + 10} x2={PAD.l + 80} y2={PAD.t + 10}
+          stroke={T.textMuted} strokeWidth="1.5" strokeDasharray="5,3" />
+        <text x={PAD.l + 84} y={PAD.t + 14} fill={T.textSub} fontSize={10}>QQQ</text>
+      </>}
 
       {spyEq && <>
         <line x1={PAD.l + 118} y1={PAD.t + 10} x2={PAD.l + 134} y2={PAD.t + 10}

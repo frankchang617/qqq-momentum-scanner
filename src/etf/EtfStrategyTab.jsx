@@ -995,6 +995,7 @@ function WfoPanel({ etfData, T }) {
 
               <EtfEquityChart
                 stratEq={wfoResult.combinedOosEquity}
+                qqqEq={wfoResult.combinedQqqOosEquity}
                 timestamps={wfoResult.combinedOosTs}
                 T={T}
               />

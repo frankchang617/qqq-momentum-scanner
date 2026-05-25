@@ -1684,13 +1684,13 @@ export default function App() {
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
                 <span style={{background:"#005bcc",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:4,letterSpacing:1}}>MODE A</span>
                 <span style={{fontSize:12,color:T.textBright,fontWeight:600}}>Fixed Parameter Backtest</span>
-                <span style={{fontSize:10,color:T.textVMuted}}>— 固定参数全程回测，不做优化</span>
+                <span style={{fontSize:10,color:T.textMuted}}>— 固定参数全程回测，不做优化</span>
               </div>
 
               <div style={{display:"flex",flexWrap:"wrap",gap:16,alignItems:"flex-start"}}>
                 {/* 排名指标（动能回看期） */}
                 <div>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>动能回看期</div>
+                  <div style={{fontSize:10,color:T.textMuted,marginBottom:5}}>动能回看期</div>
                   <div style={{display:"flex",gap:4}}>
                     {[{v:"score",l:"综合"},{v:"ret20",l:"20日"},{v:"ret50",l:"50日"},{v:"ret200",l:"200日"}].map(({v,l})=>(
                       <button key={v} onClick={()=>setStratParams(p=>({...p,sortMetric:v}))}
@@ -1701,7 +1701,7 @@ export default function App() {
 
                 {/* 持仓数量（TopN） */}
                 <div>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>持仓数量 (TopN)</div>
+                  <div style={{fontSize:10,color:T.textMuted,marginBottom:5}}>持仓数量 (TopN)</div>
                   <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                     {[3,5,10,15,20,25,30].map(n=>(
                       <button key={n} onClick={()=>setStratParams(p=>({...p,topN:n}))}
@@ -1712,7 +1712,7 @@ export default function App() {
 
                 {/* 调仓频率 */}
                 <div>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>调仓频率</div>
+                  <div style={{fontSize:10,color:T.textMuted,marginBottom:5}}>调仓频率</div>
                   <div style={{display:"flex",gap:4}}>
                     {[{v:"daily",l:"每日"},{v:"weekly",l:"每周"},{v:"monthly",l:"每月"},{v:"quarterly",l:"每季"}].map(({v,l})=>(
                       <button key={v} onClick={()=>setStratParams(p=>({...p,rebalanceFreq:v}))}
@@ -1723,7 +1723,7 @@ export default function App() {
 
                 {/* 市场过滤（QQQ 均线） */}
                 <div>
-                  <div style={{fontSize:10,color:T.textVMuted,marginBottom:5}}>市场过滤（QQQ 跌破均线 → 转现金）</div>
+                  <div style={{fontSize:10,color:T.textMuted,marginBottom:5}}>市场过滤（QQQ 跌破均线 → 转现金）</div>
                   <div style={{display:"flex",gap:4}}>
                     {[{v:"none",l:"不过滤"},{v:"ma50",l:">MA50"},{v:"ma100",l:">MA100"},{v:"ma200",l:">MA200"}].map(({v,l})=>(
                       <button key={v} onClick={()=>setStratParams(p=>({...p,marketFilter:v}))}
@@ -1738,7 +1738,7 @@ export default function App() {
                   background:darkMode?"#004488":"#0055cc",border:"1px solid #4488ee",color:darkMode?"#88ccff":"#ffffff"}}>
                   ▶ 运行固定参数回测
                 </button>
-                <span style={{fontSize:10,color:T.textVMuted}}>当前：{fmtParamLabel(stratParams)}</span>
+                <span style={{fontSize:10,color:T.textSub}}>当前：{fmtParamLabel(stratParams)}</span>
               </div>
             </div>
           )}

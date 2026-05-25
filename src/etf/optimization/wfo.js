@@ -50,6 +50,9 @@ const OOS_DAYS = 252; // 1年
 export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sharpe', onProgress = null, opens = null) {
   const N = timestamps.length;
 
+  // 预建 timestamp→index 映射，供 QQQ 基准对齐使用（O(1) 查找）
+  const tsIndexMap = new Map(timestamps.map((ts, i) => [ts, i]));
+
   // 计算有多少个有效窗口
   const windows = [];
   let pos = 0;
@@ -67,8 +70,9 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
   }
 
   const windowResults = [];
-  const combinedOosEquity = [];
-  const combinedOosTs = [];
+  const combinedOosEquity    = [];
+  const combinedOosTs        = [];
+  const combinedQqqOosEquity = []; // QQQ 买持基准（与策略曲线等长，用于图表对比）
 
   for (let wi = 0; wi < windows.length; wi++) {
     const { isStart, isEnd, oosStart, oosEnd } = windows[wi];
@@ -119,6 +123,25 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
       combinedOosTs.push(oosBt.timestamps[i]);
     });
 
+    // ── Step 4b: 同步串接 QQQ 买持基准（与策略曲线等长，对齐同一组时间戳）──
+    const qqqCloses = closes['QQQ'];
+    if (qqqCloses) {
+      const qqqWindow = oosBt.timestamps.map(ts => {
+        const idx = tsIndexMap.get(ts);
+        return idx != null ? (qqqCloses[idx] ?? null) : null;
+      });
+      const hasData = qqqWindow.length > 0 && qqqWindow[0] != null;
+      if (hasData) {
+        const lastQqq = combinedQqqOosEquity.length > 0
+          ? combinedQqqOosEquity[combinedQqqOosEquity.length - 1]
+          : 1.0;
+        const qqqScale = lastQqq / qqqWindow[0]; // 从上一段结尾处接续
+        qqqWindow.forEach(p => combinedQqqOosEquity.push(
+          p != null ? p * qqqScale : combinedQqqOosEquity[combinedQqqOosEquity.length - 1] ?? 1.0
+        ));
+      }
+    }
+
     windowResults.push({
       window: wi + 1,
       isStart: new Date(timestamps[isStart] * 1000).toISOString().slice(0, 10),
@@ -159,6 +182,7 @@ export async function runWFO(closes, timestamps, vix, qqqVol20, optMetric = 'sha
   return {
     combinedOosEquity,
     combinedOosTs,
+    combinedQqqOosEquity: combinedQqqOosEquity.length > 0 ? combinedQqqOosEquity : null,
     combinedMetrics,
     windowResults,
     windowCount: windowResults.length,
