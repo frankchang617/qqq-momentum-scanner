@@ -279,13 +279,148 @@ function MiniLineChart({ series, width = 480, height = 120, T }) {
   );
 }
 
-// ─── 简单指标卡（WFO 区域用）────────────────────────────────────────────────
+// ─── 简单指标卡（WFO 区域用，保留供其他地方引用）──────────────────────────────
 function SimpleMetricCard({ label, value, sub, color, T }) {
   return (
     <div style={{ textAlign: 'center', minWidth: 90 }}>
       <div style={{ fontSize: 9, color: T.textMuted, marginBottom: 3, letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: color ?? T.textBright, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       {sub && <div style={{ fontSize: 9, color: T.textMuted, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ─── WFO Performance Summary Table（Mode B vs QQQ 绩效对比）────────────────────
+function WfoSummaryTable({ cm, qm, T, darkMode }) {
+  if (!cm) return null;
+  const fp = (v, d = 1) => v == null ? '—' : `${(v * 100).toFixed(d)}%`;
+
+  // 最佳 / 最差年度（从 annualReturns 提取）
+  const annVals  = cm?.annualReturns  ? Object.values(cm.annualReturns)  : [];
+  const qAnnVals = qm?.annualReturns  ? Object.values(qm.annualReturns)  : [];
+  const bestYr   = annVals.length  ? Math.max(...annVals)  : null;
+  const worstYr  = annVals.length  ? Math.min(...annVals)  : null;
+  const qBestYr  = qAnnVals.length ? Math.max(...qAnnVals) : null;
+  const qWorstYr = qAnnVals.length ? Math.min(...qAnnVals) : null;
+
+  const rows = [
+    { label: '年化收益 CAGR',  sv: cm.cagr,        qv: qm?.cagr,        fmt: v => fp(v)            },
+    { label: 'Sharpe Ratio',   sv: cm.sharpe,      qv: qm?.sharpe,      fmt: v => v?.toFixed(2) ?? '—' },
+    { label: '最大回撤 MDD',   sv: cm.mdd,         qv: qm?.mdd,         fmt: v => fp(v)            },
+    { label: '累积收益',       sv: cm.totalReturn, qv: qm?.totalReturn, fmt: v => fp(v, 0)         },
+    ...(bestYr  != null ? [{ label: '最佳年度', sv: bestYr,  qv: qBestYr,  fmt: v => v != null ? fp(v) : '—' }] : []),
+    ...(worstYr != null ? [{ label: '最差年度', sv: worstYr, qv: qWorstYr, fmt: v => v != null ? fp(v) : '—' }] : []),
+  ];
+
+  // 胜出计数：数值越高越好（MDD -0.15 > -0.20 同样成立）
+  const valid    = rows.filter(r => r.sv != null && r.qv != null);
+  const wins     = valid.filter(r => r.sv > r.qv).length;
+  const total    = valid.length;
+  const winPct   = total > 0 ? wins / total : 0;
+  const winColor = winPct >= 0.6 ? '#4fc86e' : winPct >= 0.4 ? '#f0c040' : '#ee3344';
+  const winBg    = winPct >= 0.6
+    ? (darkMode ? '#00331a22' : '#f0fff4')
+    : winPct >= 0.4
+      ? (darkMode ? '#33220011' : '#fffdf0')
+      : (darkMode ? '#33000022' : '#fff8f8');
+
+  const colGrid = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' };
+  const purpleTint = darkMode ? '#1a003333' : '#f3eeff66';
+  const purpleBorder = '#8844ee28';
+
+  return (
+    <div style={{
+      borderRadius: 10, overflow: 'hidden', marginBottom: 16,
+      border: `1px solid ${T.border}`,
+      boxShadow: darkMode ? '0 4px 24px #00000040' : '0 2px 14px #0000000d',
+    }}>
+
+      {/* ── 标题栏 ── */}
+      <div style={{
+        padding: '14px 20px',
+        background: darkMode
+          ? 'linear-gradient(135deg, #160030 0%, #0b1828 100%)'
+          : 'linear-gradient(135deg, #f0eaff 0%, #eaf2ff 100%)',
+        borderBottom: `1px solid ${T.border}`,
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      }}>
+        <span style={{
+          background: '#5522aa', color: '#ddb8ff', fontSize: 9, fontWeight: 700,
+          padding: '2px 8px', borderRadius: 4, letterSpacing: 1,
+        }}>MODE B</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.textBright, letterSpacing: 0.2 }}>
+          WFO Performance Summary
+        </span>
+        <span style={{ fontSize: 10, color: T.textMuted }}>· OOS 纯样本外，无事后挑参</span>
+        <div style={{
+          marginLeft: 'auto', padding: '4px 14px', borderRadius: 20,
+          background: winBg, border: `1px solid ${winColor}55`,
+          fontSize: 11, fontWeight: 700, color: winColor, whiteSpace: 'nowrap',
+        }}>
+          策略胜出 {wins} / {total} 项指标
+        </div>
+      </div>
+
+      {/* ── 列标题 ── */}
+      <div style={{ ...colGrid, borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ padding: '9px 20px', fontSize: 10, fontWeight: 600, color: T.textMuted, letterSpacing: 0.5, background: T.pageBg }}>
+          指标
+        </div>
+        <div style={{
+          padding: '9px 20px', textAlign: 'right', fontSize: 10, fontWeight: 700,
+          color: '#cc99ff', letterSpacing: 0.5,
+          background: darkMode ? '#1a003355' : '#f0eaff',
+          borderLeft: `1px solid ${purpleBorder}`, borderRight: `1px solid ${purpleBorder}`,
+        }}>
+          🟣 策略 OOS
+        </div>
+        <div style={{ padding: '9px 20px', textAlign: 'right', fontSize: 10, fontWeight: 600, color: T.textMuted, letterSpacing: 0.5, background: T.pageBg }}>
+          QQQ 基准
+        </div>
+      </div>
+
+      {/* ── 数据行 ── */}
+      {rows.map((row, i) => {
+        const beats  = row.sv != null && row.qv != null && row.sv > row.qv;
+        const loses  = row.sv != null && row.qv != null && row.sv < row.qv;
+        const sColor = beats ? '#4fc86e' : loses ? '#ee3344' : T.textBright;
+        const isEven = i % 2 === 0;
+        const rowBg  = isEven ? (darkMode ? T.cardBg : '#f9f9fc') : T.pageBg;
+        const notLast = i < rows.length - 1;
+
+        return (
+          <div key={row.label} style={{
+            ...colGrid, background: rowBg,
+            borderBottom: notLast ? `1px solid ${T.border}33` : 'none',
+          }}>
+            {/* 指标名 */}
+            <div style={{ padding: '13px 20px', fontSize: 11, fontWeight: 600, color: T.textSub }}>
+              {row.label}
+            </div>
+
+            {/* 策略值 */}
+            <div style={{
+              padding: '13px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5,
+              fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: sColor,
+              background: isEven ? purpleTint : (darkMode ? '#1a003318' : '#f3eeff33'),
+              borderLeft: `1px solid ${purpleBorder}`, borderRight: `1px solid ${purpleBorder}`,
+            }}>
+              <span>{row.fmt(row.sv)}</span>
+              {beats && <span style={{ fontSize: 9, opacity: 0.75 }}>▲</span>}
+              {loses && <span style={{ fontSize: 9, opacity: 0.75 }}>▼</span>}
+            </div>
+
+            {/* QQQ值 */}
+            <div style={{
+              padding: '13px 20px', textAlign: 'right',
+              fontFamily: 'monospace', fontSize: 13, color: T.textSub,
+            }}>
+              {row.fmt(row.qv)}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1441,19 +1576,6 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                     </table>
                   </div>
 
-                  {/* OOS 总绩效指标 */}
-                  <div style={{ fontSize: 10, color: T.textSub, letterSpacing: 1, marginBottom: 8 }}>
-                    Mode B · WFO OOS 绩效（out-of-sample，无事后挑选）
-                  </div>
-                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
-                    {cm && [
-                      { label: 'OOS CAGR',   value: fmtPct(cm.cagr),         sub: qm ? `QQQ ${fmtPct(qm.cagr)}` : null,   color: cm.cagr >= 0 ? '#4fc86e' : '#e05050' },
-                      { label: 'OOS Sharpe', value: cm.sharpe.toFixed(2),     sub: qm ? `QQQ ${qm.sharpe.toFixed(2)}` : null, color: cm.sharpe > 1 ? '#4fc86e' : cm.sharpe > 0.5 ? '#f0c040' : '#e05050' },
-                      { label: 'OOS MDD',    value: fmtPct(cm.mdd),           sub: qm ? `QQQ ${fmtPct(qm.mdd)}` : null,   color: cm.mdd > -0.2 ? '#4fc86e' : cm.mdd > -0.35 ? '#f0c040' : '#e05050' },
-                      { label: 'OOS 总收益', value: fmtPct(cm.totalReturn),   sub: qm ? `QQQ ${fmtPct(qm.totalReturn)}` : null, color: cm.totalReturn >= 0 ? '#4fc86e' : '#e05050' },
-                    ].map((m, i) => <SimpleMetricCard key={i} label={m.label} value={m.value} sub={m.sub} color={m.color} T={T} />)}
-                  </div>
-
                   {/* OOS 净值曲线 */}
                   {wfoResult.allOutEquity.length > 10 && (
                     <div style={{ background: T.pageBg, border: `1px solid ${T.border}`, borderRadius: 8, padding: '14px 16px', overflowX: 'auto', marginBottom: 16 }}>
@@ -1470,6 +1592,9 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                       />
                     </div>
                   )}
+
+                  {/* OOS Performance Summary（Mode B vs QQQ 绩效对比表） */}
+                  <WfoSummaryTable cm={cm} qm={qm} T={T} darkMode={darkMode} />
 
                   {/* Mode A vs Mode B 对比表 */}
                   {btResult?.metrics && cm && (() => {
