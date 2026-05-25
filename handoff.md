@@ -326,6 +326,23 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 
 ---
 
+## ✅ Session 16 完成（2026-05-25，commit `7a3eb5f`）
+
+### ETF Mode B 净值曲线加入 SPY 基准线
+
+| 文件 | 改动 |
+|------|------|
+| `src/etf/EtfStrategyTab.jsx` | WfoPanel 的 `EtfEquityChart` 补传 `spyEq={wfoResult.combinedSpyOosEquity}` |
+
+`EtfEquityChart` 早已预留 `spyEq` prop（橙色虚线 + 图例），本次仅补传 1 行即可生效。
+
+ETF Mode B 净值曲线现在显示三条线：
+- 🔵 蓝色实线 — 策略 OOS
+- ⬜ 灰色虚线 — QQQ 基准
+- 🟠 橙色虚线 — SPY 基准
+
+---
+
 ## 下一步（待规划）
 
 所有规划功能已全部完成，可根据需要开展新功能或优化。
