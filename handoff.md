@@ -146,9 +146,7 @@ QQQ 曲线与策略曲线**等长**，保证像素精确对齐；各窗口衔接
 
 ---
 
----
-
-## ✅ Session 11 完成（2026-05-25）
+## ✅ Session 11 完成（2026-05-25，commits `a52f6f9` · `f4d79fb`）
 
 ### 扩展三大策略动能回看期参数网格
 
@@ -161,7 +159,7 @@ QQQ 曲线与策略曲线**等长**，保证像素精确对齐；各窗口衔接
 | ETF 双动能 | 63/126/252 | 20/50/63/126/200/252 | 18→36 |
 | ETF 三策略合计 | — | — | 86→131 |
 
-**改动文件（9个）**：
+**改动文件（10个）**：
 - `src/qqq/strategies/qqqRotation.js` — PARAM_GRID + paramLabel + 注释
 - `src/etf/strategies/momentum.js` — MOMENTUM_PARAM_GRID
 - `src/etf/strategies/dualMomentum.js` — DUAL_MOMENTUM_PARAM_GRID
@@ -169,10 +167,13 @@ QQQ 曲线与策略曲线**等长**，保证像素精确对齐；各窗口衔接
 - `src/etf/optimization/wfo.js` — 参数数量注释
 - `src/qqq/optimization/qqqGridSearch.js` — 参数数量注释
 - `src/qqq/optimization/qqqWfo.js` — 参数数量注释 + totalCombos
-- `src/qqq/QqqRotationTab.jsx` — UI 文字 + progress total
-- `src/etf/EtfStrategyTab.jsx` — UI 文字 + progress total
+- `src/qqq/QqqRotationTab.jsx` — UI 文字 + progress total + 回看期下拉选项 + lbLabel
+- `src/etf/EtfStrategyTab.jsx` — UI 文字 + progress total + LOOKBACK_OPTS + 双动能回看按钮组
+- `handoff.md`
 
 动能计算逻辑不变（仍为单一回看期），仅扩展可选参数范围。
+
+**fixup `f4d79fb`**：首次 commit 遗漏了 UI 下拉选择器的硬编码选项（参数网格常量改了但界面没联动），补充修复了 4 处选择器。
 
 ---
 
