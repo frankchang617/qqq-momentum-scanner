@@ -298,7 +298,7 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 
 ---
 
-## 🚧 Session 15 进行中（2026-05-25）
+## ✅ Session 15 完成（2026-05-25，commit `53f7faa`）
 
 ### 全策略 WFO Performance Summary 统一改版
 
@@ -311,14 +311,14 @@ Mode A（全量回测）和 Mode B（WFO OOS）的绩效**理应不同**，这�
 - **胜出徽章**：`vs QQQ: X/N 项 · vs SPY: Y/N 项`（分开显示）
 - **ETF wfo.js**：需新增 SPY 基准追踪（`combinedSpyOosEquity` + `spyCombinedMetrics`）
 
-#### 当前进度
-| 步骤 | 状态 |
-|------|------|
-| 1. 创建 `src/shared/WfoSummaryTable.jsx` | ✅ |
-| 2. `src/etf/optimization/wfo.js` 加 SPY 追踪 | ✅ |
-| 3. `src/qqq/QqqRotationTab.jsx` 改 import + 删本地定义 | ✅ |
-| 4. `qqq-momentum.jsx` 接入共享组件 | ✅ |
-| 5. `src/etf/EtfStrategyTab.jsx` 接入双基准 | 🚧 进行中 |
+#### 完成明细（全部 ✅）
+| 步骤 | 文件 | 说明 |
+|------|------|------|
+| 1 | `src/shared/WfoSummaryTable.jsx` | 新建共享组件，支持可变基准列数、胜出徽章、▲▼~ 指示器 |
+| 2 | `src/etf/optimization/wfo.js` | 提取 `appendBenchmark()`，新增 SPY 追踪，返回 `spyCombinedMetrics` |
+| 3 | `src/qqq/QqqRotationTab.jsx` | 删本地定义，import 共享组件，传 `[{label:'QQQ 基准', metrics:qm}]` |
+| 4 | `qqq-momentum.jsx` | import 共享组件，calcPortMetrics(%) ÷100 归一化，传 QQQ 基准 |
+| 5 | `src/etf/EtfStrategyTab.jsx` | WfoPanel 加 darkMode prop，传 QQQ + SPY 双基准 |
 
 #### 格式注意
 - QqqRotationTab / EtfStrategyTab 的 metrics 为小数（decimal）
