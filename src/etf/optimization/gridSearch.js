@@ -57,25 +57,33 @@ export function getVolParams() {
 /**
  * 运行所有参数组合（Grid Search）
  *
- * @param {Object}   closes       { QQQ: [], SPY: [], ... }
- * @param {number[]} timestamps   对齐后的时间戳
- * @param {number[]} vix          VIX 数组（可含 null）
- * @param {number[]} qqqVol20     QQQ 自算波动率数组
- * @param {number}   startIdx     回测起始索引
- * @param {number}   endIdx       回测终止索引（null=全程）
- * @param {Function} onProgress   进度回调 (done, total) => void
+ * @param {Object}   closes          { QQQ: [], SPY: [], ... }
+ * @param {number[]} timestamps      对齐后的时间戳
+ * @param {number[]} vix             VIX 数组（可含 null）
+ * @param {number[]} qqqVol20        QQQ 自算波动率数组
+ * @param {number}   startIdx        回测起始索引
+ * @param {number}   endIdx          回测终止索引（null=全程）
+ * @param {Function} onProgress      进度回调 (done, total) => void
+ * @param {Object}   opens           开盘价数据（可选）
+ * @param {string|null} strategyFilter  策略过滤：'momentum'|'dualMomentum'|'volControl'|null（null=全部）
  * @returns {Array} 所有结果，含综合评分，按评分降序
  */
 export async function runGridSearch(
   closes, timestamps, vix, qqqVol20,
   startIdx = 0, endIdx = null,
-  onProgress = null, opens = null
+  onProgress = null, opens = null,
+  strategyFilter = null
 ) {
-  const allParams = [
+  let allParams = [
     ...getMomentumParams(),
     ...getDualMomentumParams(),
     ...getVolParams(),
   ];
+
+  // 按策略过滤（WFO 模式下仅跑选中策略）
+  if (strategyFilter) {
+    allParams = allParams.filter(p => p.strategy === strategyFilter);
+  }
 
   const total = allParams.length;
   const rawResults = [];

@@ -688,7 +688,7 @@ function ResultsPanel({ result, qqqMetrics, spyMetrics, T }) {
 }
 
 // ── 策略1面板：强势轮动 ──
-function MomentumPanel({ etfData, T, pendingOverride }) {
+function MomentumPanel({ etfData, T, pendingOverride, onRunBacktest }) {
   const LOOKBACK_OPTS = [
     { val: 20, label: '20D（20日）' },
     { val: 21, label: '1M（21日）' },
@@ -708,6 +708,7 @@ function MomentumPanel({ etfData, T, pendingOverride }) {
   // 核心：接受显式参数运行（绕过 state 异步更新，与 QQQ 同款）
   const runWithParams = useCallback((p) => {
     if (!etfData) return;
+    onRunBacktest?.({ strategy: 'momentum', ...p }); // 通知父组件更新 WFO 固定参数
     setRunning(true);
     setTimeout(() => {
       try {
@@ -800,7 +801,7 @@ function MomentumPanel({ etfData, T, pendingOverride }) {
 }
 
 // ── 策略2面板：双动能 ──
-function DualMomentumPanel({ etfData, T, pendingOverride }) {
+function DualMomentumPanel({ etfData, T, pendingOverride, onRunBacktest }) {
   const [params, setParams] = useState({ lookback: 126, maFilter: 200, defensiveAsset: 'SHY' });
   const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
@@ -810,6 +811,7 @@ function DualMomentumPanel({ etfData, T, pendingOverride }) {
 
   const runWithParams = useCallback((p) => {
     if (!etfData) return;
+    onRunBacktest?.({ strategy: 'dualMomentum', ...p }); // 通知父组件更新 WFO 固定参数
     setRunning(true);
     setTimeout(() => {
       try {
@@ -898,7 +900,7 @@ function DualMomentumPanel({ etfData, T, pendingOverride }) {
 }
 
 // ── 策略3面板：波动率控管 ──
-function VolControlPanel({ etfData, T, pendingOverride }) {
+function VolControlPanel({ etfData, T, pendingOverride, onRunBacktest }) {
   const [params, setParams] = useState({
     volSource: 'REALIZED', lowThreshold: 20, highThreshold: 30, defensiveAsset: 'SHY',
   });
@@ -910,6 +912,7 @@ function VolControlPanel({ etfData, T, pendingOverride }) {
 
   const runWithParams = useCallback((p) => {
     if (!etfData) return;
+    onRunBacktest?.({ strategy: 'volControl', ...p }); // 通知父组件更新 WFO 固定参数
     setRunning(true);
     setTimeout(() => {
       try {
@@ -1202,22 +1205,59 @@ function OptimizePanel({ etfData, T, darkMode, onApply }) {
 }
 
 // ── Walk Forward 面板 ──
-function WfoPanel({ etfData, T, darkMode, onApply }) {
+//
+// 两种运行模式（用户可切换）：
+//
+// 【模式A · 固定参数 OOS 验证】（pendingOverride 存在时默认）
+//   用优化后已选定的那组参数，在每个1年 OOS 窗口回测。
+//   IS 期仅计算该参数的参考绩效，不做任何搜索。
+//   目的：验证你选中的参数在不同市场环境下是否稳定。
+//
+// 【模式B · 自动寻优 WFO】（无已选参数时默认）
+//   每个 IS 期跑 131 种组合选最优，固定参数跑 OOS 验证。
+//   目的：无未来数据偏差的参数自动选择。
+
+function WfoPanel({ etfData, T, darkMode, onApply, pendingOverride }) {
+  // 模式切换：'fixed' = 固定参数OOS验证，'auto' = 自动寻优WFO
+  const hasOverride = pendingOverride?.params != null;
+  const [mode, setMode] = useState(hasOverride ? 'fixed' : 'auto');
+
+  // 当外部 pendingOverride 变化（用户新选了参数），自动切换到固定参数模式
+  const prevOverrideTs = useRef(0);
+  useEffect(() => {
+    if (pendingOverride?.ts && pendingOverride.ts !== prevOverrideTs.current) {
+      prevOverrideTs.current = pendingOverride.ts;
+      setMode('fixed');
+    }
+  }, [pendingOverride]);
+
   const [optMetric, setOptMetric] = useState('sharpe');
   const [wfoResult, setWfoResult] = useState(null);
   const [running, setRunning]     = useState(false);
   const [phase, setPhase]         = useState('');
 
+  const fixedParams = mode === 'fixed' ? (pendingOverride?.params ?? null) : null;
+
   const run = useCallback(async () => {
     if (!etfData || running) return;
+    if (mode === 'fixed' && !fixedParams) {
+      alert('请先在"一键优化"中选择一个策略并点击「应用并回测」，再运行固定参数验证。');
+      return;
+    }
     setRunning(true);
     setWfoResult(null);
     try {
       const res = await runWFO(
         etfData.closes, etfData.timestamps, etfData.vix, etfData.qqqVol20,
         optMetric,
-        (done, total, ph) => setPhase(`窗口 ${done + 1}/${total} · ${ph === 'is' ? 'IS优化' : 'OOS验证'}`),
-        etfData.opens
+        (done, total, ph) => setPhase(
+          ph === 'oos'
+            ? `窗口 ${done + 1}/${total} · OOS 验证`
+            : `窗口 ${done + 1}/${total} · IS 寻优`
+        ),
+        etfData.opens,
+        null,        // strategyFilter（自动模式才用，固定模式无需）
+        fixedParams  // 固定参数（null = 自动寻优模式）
       );
       setWfoResult(res);
     } catch (e) {
@@ -1225,50 +1265,130 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
     }
     setRunning(false);
     setPhase('');
-  }, [etfData, optMetric, running]);
+  }, [etfData, optMetric, running, mode, fixedParams]);
 
   const s = wfoResult?.stability;
+  const isFixedMode = wfoResult?.isFixedMode;
 
   return (
     <div>
-      <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
-        用前 3 年（IS）找最佳参数，用后 1 年（OOS）验证，每年滚动一次。串接所有 OOS 结果得到无偏绩效估计。
-        <br/>
-        <span style={{ fontSize: 11, color: '#cc88ff' }}>
-          🔒 参数一致性：IS 选出的参数直接用于 OOS，OOS 期间不重新优化，确保无前视偏差。
-        </span>
-        <br />
-        <span style={{ color: '#e8883a', fontSize: 11 }}>
-          ⚠ 10年数据约 6～7 个窗口，每窗口内 IS 跑 131 种组合，耗时约 1～2 分钟。
-        </span>
+      {/* ── 模式选择器 ── */}
+      <div style={{
+        display: 'flex', gap: 0, marginBottom: 16,
+        border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden',
+      }}>
+        {[
+          {
+            val: 'fixed',
+            icon: '📌',
+            title: '固定参数 OOS 验证',
+            desc: '用你已选中的参数，在每个1年窗口滚动验证稳定性',
+          },
+          {
+            val: 'auto',
+            icon: '🔍',
+            title: '自动寻优 WFO',
+            desc: '每个 IS 期自动搜索最优参数，OOS 验证（无偏估计）',
+          },
+        ].map((m, idx) => {
+          const active = mode === m.val;
+          return (
+            <button key={m.val} onClick={() => !running && setMode(m.val)} style={{
+              flex: 1, padding: '12px 16px', textAlign: 'left',
+              cursor: running ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit',
+              background: active ? '#9944ee22' : T.cardBg,
+              border: 'none',
+              borderLeft: idx > 0 ? `1px solid ${T.border}` : 'none',
+              borderBottom: active ? '2px solid #9944ee' : '2px solid transparent',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: active ? '#cc88ff' : T.textSub, marginBottom: 3 }}>
+                {m.icon} {m.title}
+              </div>
+              <div style={{ fontSize: 10, color: T.textMuted, lineHeight: 1.5 }}>{m.desc}</div>
+            </button>
+          );
+        })}
       </div>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>IS 优化目标</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[
-              { val: 'sharpe',    label: 'Sharpe（推荐）' },
-              { val: 'cagr',      label: 'CAGR' },
-              { val: 'calmar',    label: 'Calmar' },
-              { val: 'composite', label: '综合评分' },
-            ].map(o => (
-              <ParamBtn key={o.val} label={o.label} T={T}
-                active={optMetric === o.val}
-                onClick={() => setOptMetric(o.val)} />
-            ))}
+      {/* ── 固定参数模式：显示选中的参数 ── */}
+      {mode === 'fixed' && (
+        <div style={{
+          padding: '10px 14px', marginBottom: 16,
+          background: fixedParams ? '#4fc86e0d' : '#ee444411',
+          border: `1px solid ${fixedParams ? '#4fc86e33' : '#ee444433'}`,
+          borderRadius: 8, fontSize: 11,
+        }}>
+          {fixedParams ? (
+            <>
+              <div style={{ color: '#4fc86e', fontWeight: 700, marginBottom: 6 }}>
+                ✅ 已选参数（将在每个 OOS 窗口直接使用此参数，不再搜索）
+              </div>
+              <div style={{
+                fontFamily: 'monospace', fontSize: 12, color: '#cc88ff', fontWeight: 600,
+                padding: '6px 10px', background: '#cc88ff11', borderRadius: 5,
+                border: '1px solid #cc88ff33', display: 'inline-block',
+              }}>
+                {paramLabel(fixedParams)}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 10, color: T.textMuted, lineHeight: 1.6 }}>
+                📊 每个1年 OOS 窗口将用此参数运行回测，IS 期仅计算参考绩效（不用于选参）。<br/>
+                这验证的是：<b style={{ color: T.textBright }}>你选中的策略在它从未见过的数据上能否保持稳定</b>。
+              </div>
+            </>
+          ) : (
+            <div style={{ color: '#ee4444' }}>
+              ⚠ 尚未选择参数。请先在「一键优化」中找到满意的策略，点击「应用并回测」，再来运行固定参数验证。
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 自动寻优模式：说明 + 优化目标 ── */}
+      {mode === 'auto' && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: T.textSub, marginBottom: 10, lineHeight: 1.6 }}>
+            每个窗口：用前 3 年（IS）从 131 种参数中找最优，用后 1 年（OOS）验证。每年滚动一次。
+            <br/>
+            <span style={{ fontSize: 11, color: '#cc88ff' }}>
+              🔒 OOS 期不重新优化，确保无前视偏差。
+            </span>
+            <span style={{ color: '#e8883a', fontSize: 11, marginLeft: 8 }}>
+              ⚠ 耗时约 1～2 分钟。
+            </span>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>IS 优化目标</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { val: 'sharpe',    label: 'Sharpe（推荐）' },
+                { val: 'cagr',      label: 'CAGR' },
+                { val: 'calmar',    label: 'Calmar' },
+                { val: 'composite', label: '综合评分' },
+              ].map(o => (
+                <ParamBtn key={o.val} label={o.label} T={T}
+                  active={optMetric === o.val}
+                  onClick={() => setOptMetric(o.val)} />
+              ))}
+            </div>
           </div>
         </div>
+      )}
 
-        <button onClick={run} disabled={!etfData || running} style={{
-          padding: '9px 26px', borderRadius: 6, fontFamily: 'inherit', fontSize: 13,
-          cursor: etfData && !running ? 'pointer' : 'not-allowed',
-          background: '#9944ee', color: '#fff', border: 'none',
-          opacity: (!etfData || running) ? 0.6 : 1, fontWeight: 600,
-        }}>
-          {running ? `运行中… ${phase}` : '🔄 运行 Walk Forward'}
-        </button>
-      </div>
+      {/* ── 运行按钮 ── */}
+      <button onClick={run} disabled={!etfData || running || (mode === 'fixed' && !fixedParams)} style={{
+        padding: '9px 26px', borderRadius: 6, fontFamily: 'inherit', fontSize: 13,
+        cursor: (etfData && !running && !(mode === 'fixed' && !fixedParams)) ? 'pointer' : 'not-allowed',
+        background: '#9944ee', color: '#fff', border: 'none', marginBottom: 16,
+        opacity: (!etfData || running || (mode === 'fixed' && !fixedParams)) ? 0.5 : 1,
+        fontWeight: 600,
+      }}>
+        {running
+          ? `运行中… ${phase}`
+          : mode === 'fixed'
+            ? '📌 运行固定参数 OOS 验证'
+            : '🔄 运行自动寻优 WFO'}
+      </button>
 
       {wfoResult?.error && (
         <div style={{ color: '#ee4444', fontSize: 12, padding: 12, background: '#ee444422', borderRadius: 6 }}>
@@ -1281,8 +1401,13 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
           {/* OOS 净值曲线 + Performance Summary */}
           {wfoResult.combinedMetrics && (
             <div>
-              <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>
                 串接 OOS 总绩效（{wfoResult.windowCount} 个窗口）
+                {isFixedMode && (
+                  <span style={{ marginLeft: 8, color: '#4fc86e', fontWeight: 600 }}>
+                    · 固定参数：{paramLabel(wfoResult.fixedParams)}
+                  </span>
+                )}
               </div>
 
               <EtfEquityChart
@@ -1304,14 +1429,14 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
             </div>
           )}
 
-          {/* WFO 稳定性 */}
+          {/* 稳定性指标 */}
           {s && (
             <div style={{
               marginTop: 16, padding: '12px 16px',
               background: T.cardBg2, border: `1px solid ${T.border}`, borderRadius: 8,
             }}>
               <div style={{ fontSize: 12, color: T.textBright, fontWeight: 600, marginBottom: 10 }}>
-                WFO 稳定性指标
+                OOS 稳定性指标
               </div>
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 11 }}>
                 {[
@@ -1320,7 +1445,7 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
                   ['平均 OOS CAGR', fmtPct(s.avgOosCagr)],
                   ['平均 OOS Sharpe', fmtNum(s.avgOosSharpe)],
                   ['OOS CAGR 标准差', fmtPct(s.stdOosCagr)],
-                  ['IS/OOS Sharpe 比', s.isOosSharpeRatio?.toFixed(2)],
+                  ...(!isFixedMode ? [['IS/OOS Sharpe 比', s.isOosSharpeRatio?.toFixed(2)]] : []),
                 ].map(([lbl, val]) => (
                   <div key={lbl}>
                     <div style={{ color: T.textMuted, marginBottom: 2 }}>{lbl}</div>
@@ -1328,9 +1453,11 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
                   </div>
                 ))}
               </div>
-              <div style={{ fontSize: 11, color: T.textMuted, marginTop: 8 }}>
-                IS/OOS Sharpe 比：接近 1 = 无过拟合；低于 0.5 = 存在严重过拟合
-              </div>
+              {!isFixedMode && (
+                <div style={{ fontSize: 11, color: T.textMuted, marginTop: 8 }}>
+                  IS/OOS Sharpe 比：接近 1 = 无过拟合；低于 0.5 = 存在严重过拟合
+                </div>
+              )}
             </div>
           )}
 
@@ -1339,30 +1466,40 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
             <div style={{ fontSize: 12, color: T.textBright, fontWeight: 600, marginBottom: 6 }}>
               窗口明细
             </div>
-            {/* IS = OOS 参数一致性说明 */}
             <div style={{
               padding: '8px 12px', marginBottom: 10,
-              background: '#9944ee18', border: '1px solid #9944ee44',
+              background: isFixedMode ? '#4fc86e18' : '#9944ee18',
+              border: `1px solid ${isFixedMode ? '#4fc86e44' : '#9944ee44'}`,
               borderRadius: 6, fontSize: 11, color: T.textSub, lineHeight: 1.6,
             }}>
-              ⚡ <b style={{ color: '#cc88ff' }}>参数一致性保证</b>：每个窗口的 OOS 期间
-              严格使用 IS 期选出的最佳参数，<b style={{ color: T.textBright }}>不重新优化、不事后调参</b>。
-              "IS→OOS 参数" 列同时标注 IS 选参结果 = OOS 实际使用参数。
+              {isFixedMode ? (
+                <>
+                  📌 <b style={{ color: '#4fc86e' }}>固定参数验证</b>：所有窗口的 OOS 期间均使用
+                  「<span style={{ color: '#cc88ff', fontWeight: 600 }}>{paramLabel(wfoResult.fixedParams)}</span>」，
+                  <b style={{ color: T.textBright }}>参数完全固定，不因窗口不同而变化</b>。
+                  IS 期绩效仅供参考。
+                </>
+              ) : (
+                <>
+                  ⚡ <b style={{ color: '#cc88ff' }}>自动寻优</b>：每个窗口 IS 期独立搜索最优参数，
+                  <b style={{ color: T.textBright }}>OOS 期严格使用该窗口选出的参数，不重新优化</b>。
+                </>
+              )}
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', fontSize: 11 }}>
                 <thead>
                   <tr>
                     {[
-                      { h: '窗口',            sub: '' },
-                      { h: 'IS 训练期',       sub: '样本内（选参）' },
-                      { h: 'OOS 验证期',      sub: '样本外（禁止重选参）' },
-                      { h: 'IS→OOS 参数',    sub: '两者完全一致 ✓' },
-                      { h: 'IS 评分',         sub: `按 ${wfoResult.optMetric} 排序` },
-                      { h: 'OOS CAGR',        sub: '' },
-                      { h: 'OOS Sharpe',      sub: '' },
-                      { h: 'OOS MDD',         sub: '' },
-                      { h: '操作',           sub: '' },
+                      { h: '窗口', sub: '' },
+                      { h: 'IS 参考期', sub: isFixedMode ? '固定参数参考绩效' : '样本内（IS 选参）' },
+                      { h: 'OOS 验证期', sub: '样本外（核心结果）' },
+                      { h: isFixedMode ? '固定参数' : 'IS→OOS 参数', sub: isFixedMode ? '所有窗口完全一致' : '两者完全一致 ✓' },
+                      { h: isFixedMode ? 'IS 参考 CAGR' : 'IS 评分', sub: isFixedMode ? '参考，不用于选参' : `按 ${wfoResult.optMetric}` },
+                      { h: 'OOS CAGR', sub: '' },
+                      { h: 'OOS Sharpe', sub: '' },
+                      { h: 'OOS MDD', sub: '' },
+                      ...(!isFixedMode ? [{ h: '操作', sub: '' }] : []),
                     ].map(({ h, sub }) => (
                       <th key={h} style={{
                         padding: '7px 10px', textAlign: 'left',
@@ -1378,11 +1515,11 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
                 </thead>
                 <tbody>
                   {wfoResult.windowResults.map((w, i) => {
-                    const isScoreVal = w.isScore != null ? (
-                      ['cagr', 'oosCagr'].includes(wfoResult.optMetric)
-                        ? fmtPct(w.isScore)
-                        : fmtNum(w.isScore)
-                    ) : '—';
+                    const isScoreDisplay = isFixedMode
+                      ? fmtPct(w.isCagr)   // 固定参数模式：显示 IS 参考 CAGR
+                      : w.isScore != null
+                        ? (['cagr'].includes(wfoResult.optMetric) ? fmtPct(w.isScore) : fmtNum(w.isScore))
+                        : '—';
                     return (
                       <tr key={i} style={{ background: i % 2 === 0 ? T.rowEven : T.cardBg }}>
                         <td style={{ padding: '6px 10px', color: T.textMuted, fontWeight: 700 }}>#{w.window}</td>
@@ -1392,13 +1529,22 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
                         <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: T.textBright, fontSize: 10, fontWeight: 600 }}>
                           {w.oosStart} → {w.oosEnd}
                         </td>
-                        {/* IS→OOS 参数（两者相同） */}
-                        <td style={{ padding: '6px 10px', fontSize: 10, maxWidth: 220 }}>
-                          <span style={{ color: '#cc88ff', fontWeight: 600 }}>{paramLabel(w.isBestParams)}</span>
-                          <span style={{ marginLeft: 6, fontSize: 9, color: '#4fc86e', opacity: 0.8 }}>OOS同</span>
+                        <td style={{ padding: '6px 10px', fontSize: 10, maxWidth: 240 }}>
+                          <span style={{ color: '#cc88ff', fontWeight: 600 }}>
+                            {paramLabel(w.isBestParams)}
+                          </span>
+                          {isFixedMode && (
+                            <span style={{ marginLeft: 6, fontSize: 9, color: '#4fc86e', opacity: 0.8 }}>固定</span>
+                          )}
+                          {!isFixedMode && (
+                            <span style={{ marginLeft: 6, fontSize: 9, color: '#4fc86e', opacity: 0.8 }}>OOS同</span>
+                          )}
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: T.textSub }}>
-                          {isScoreVal}
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace',
+                          color: isFixedMode
+                            ? ((w.isCagr ?? 0) >= 0 ? '#4fc86e' : '#ee4444')
+                            : T.textSub }}>
+                          {isScoreDisplay}
                         </td>
                         <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace',
                           color: (w.oosCagr ?? 0) >= 0 ? '#4fc86e' : '#ee4444' }}>
@@ -1411,18 +1557,20 @@ function WfoPanel({ etfData, T, darkMode, onApply }) {
                         <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#ee4444' }}>
                           {fmtPct(w.oosMdd)}
                         </td>
-                        <td style={{ padding: '5px 8px' }}>
-                          {onApply && (
-                            <button onClick={() => onApply({ params: w.isBestParams })} style={{
-                              padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
-                              fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
-                              background: '#0055cc', border: '1px solid #4488ee', color: '#fff',
-                              whiteSpace: 'nowrap',
-                            }}>
-                              应用并回测
-                            </button>
-                          )}
-                        </td>
+                        {!isFixedMode && (
+                          <td style={{ padding: '5px 8px' }}>
+                            {onApply && (
+                              <button onClick={() => onApply({ params: w.isBestParams })} style={{
+                                padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+                                fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+                                background: '#0055cc', border: '1px solid #4488ee', color: '#fff',
+                                whiteSpace: 'nowrap',
+                              }}>
+                                应用并回测
+                              </button>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -1457,6 +1605,11 @@ export default function EtfStrategyTab({ T, darkMode }) {
     setActiveStrat(tab);
     setShowOpt(false); // 折叠一键优化面板
     setPendingOverride({ params: result.params, ts: Date.now() });
+  }, []);
+
+  // 各策略面板「▶ 运行回测」按钮：同步通知 WFO 面板记录当前参数（固定参数模式）
+  const handleStratBacktest = useCallback((params) => {
+    setPendingOverride({ params, ts: Date.now() });
   }, []);
 
   // ── 加载数据 ──
@@ -1594,9 +1747,9 @@ export default function EtfStrategyTab({ T, darkMode }) {
           </div>
         )}
 
-        {etfData && activeStrat === 'momentum'  && <MomentumPanel    etfData={etfData} T={T} pendingOverride={pendingOverride} />}
-        {etfData && activeStrat === 'dual'       && <DualMomentumPanel etfData={etfData} T={T} pendingOverride={pendingOverride} />}
-        {etfData && activeStrat === 'volControl' && <VolControlPanel  etfData={etfData} T={T} pendingOverride={pendingOverride} />}
+        {etfData && activeStrat === 'momentum'  && <MomentumPanel    etfData={etfData} T={T} pendingOverride={pendingOverride} onRunBacktest={handleStratBacktest} />}
+        {etfData && activeStrat === 'dual'       && <DualMomentumPanel etfData={etfData} T={T} pendingOverride={pendingOverride} onRunBacktest={handleStratBacktest} />}
+        {etfData && activeStrat === 'volControl' && <VolControlPanel  etfData={etfData} T={T} pendingOverride={pendingOverride} onRunBacktest={handleStratBacktest} />}
       </div>
 
       {/* ── 参数全量扫描（一键优化，可折叠） ── */}
@@ -1659,7 +1812,7 @@ export default function EtfStrategyTab({ T, darkMode }) {
               border: `1px solid ${T.border}`, borderTop: 'none',
               borderRadius: '0 0 8px 8px',
             }}>
-              <WfoPanel etfData={etfData} T={T} darkMode={darkMode} onApply={handleApplyAndRun} />
+              <WfoPanel etfData={etfData} T={T} darkMode={darkMode} onApply={handleApplyAndRun} pendingOverride={pendingOverride} />
             </div>
           )}
         </div>

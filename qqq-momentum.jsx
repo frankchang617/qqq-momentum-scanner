@@ -776,16 +776,23 @@ function runAllCombos(histData, commonTs, qqqCloses, rangeStart=0, rangeEnd=null
 }
 
 // Walk Forward Optimization
-// 正确逻辑：
-//   1. in-sample 跑 Grid Search(448种) → 按 optMetric 选出最佳参数
-//   2. 用该参数固定跑 out-of-sample → 记录绩效
-//   3. out-of-sample 结果只用于记录，不参与任何参数选择
-//   4. 所有 out-of-sample 串接 → WFO 总绩效
-// 窗口设计：70% in-sample / 30% out-of-sample，按 OOS 步长滚动
-function runWFO(histData, commonTs, qqqCloses, optMetric='sharpe') {
+//
+// 【模式A：固定参数 OOS 验证（fixedParams 指定时）】
+//  - 跳过 IS Grid Search，直接用指定参数跑 OOS
+//  - IS 期只计算固定参数的参考绩效，仅用于展示
+//  - 目的：验证用户选定参数在从未见过的数据上的稳定性
+//
+// 【模式B：自动寻优 WFO（fixedParams = null 时，原有行为）】
+//  - IS 跑 Grid Search（448种组合）→ 按 optMetric 选最佳参数
+//  - 用该参数固定跑 OOS → 记录绩效
+//  - 目的：无前视偏差的参数自动选择
+//
+// 窗口设计：单窗口 70% IS / 30% OOS
+function runWFO(histData, commonTs, qqqCloses, optMetric='sharpe', fixedParams=null) {
   const N = commonTs.length;
+  const isFixedMode = fixedParams != null;
 
-  // 单窗口：前 70% in-sample，后 30% out-of-sample（7年训练 + 3年验证）
+  // 单窗口：前 70% in-sample，后 30% out-of-sample
   const inEnd  = Math.round(N * 0.70);
   const inDays  = inEnd;
   const outDays = N - inEnd;
@@ -793,23 +800,50 @@ function runWFO(histData, commonTs, qqqCloses, optMetric='sharpe') {
   // 至少需要 1年 in-sample + 2个月 out-of-sample
   if (inDays < 252 || outDays < 42) return null;
 
-  // 评分函数：in-sample 按哪个指标选最佳参数
   const scoreFn = (m) => {
     if (optMetric === 'cagr')   return m.cagr;
     if (optMetric === 'calmar') return m.cagr / Math.abs(m.mdd || 1);
-    return m.sharpe; // 默认：Sharpe
+    return m.sharpe;
   };
 
-  // ── Step 1: in-sample Grid Search（448种参数组合）──
-  const inCombos = runAllCombos(histData, commonTs, qqqCloses, 0, inEnd);
-  if (!inCombos.length) return null;
+  let bestParams;
+  let inSampleScore    = null;
+  let inSampleSharpe   = null;
+  let inSampleCAGR     = null;
+  let inSampleMDD      = null;
+  let inSampleComboCnt = 0;
 
-  // ── Step 2: in-sample 内按 optMetric 选最佳参数 ──
-  inCombos.sort((a, b) => scoreFn(b.metrics) - scoreFn(a.metrics));
-  const bestCombo  = inCombos[0];
-  const bestParams = bestCombo.params; // ← 唯一用于 OOS 的参数，绝不事后修改
+  if (isFixedMode) {
+    // ── 模式A：固定参数，跳过 IS 搜索 ──
+    bestParams = fixedParams;
 
-  // ── Step 3: 用固定参数跑 out-of-sample（只记录，不选参数）──
+    // 计算固定参数在 IS 期的参考绩效（仅展示，不影响参数选择）
+    try {
+      const isBt = portfolioBacktest(histData, commonTs, qqqCloses, fixedParams, 0, inEnd);
+      const isM  = calcPortMetrics(isBt.equityCurve, isBt.timestamps);
+      if (isM) {
+        inSampleSharpe = isM.sharpe;
+        inSampleCAGR   = isM.cagr;
+        inSampleMDD    = isM.mdd;
+      }
+    } catch(e) { /* IS 参考计算失败不影响 OOS */ }
+
+  } else {
+    // ── 模式B：IS 期 Grid Search（448种组合）──
+    const inCombos = runAllCombos(histData, commonTs, qqqCloses, 0, inEnd);
+    if (!inCombos.length) return null;
+
+    inCombos.sort((a, b) => scoreFn(b.metrics) - scoreFn(a.metrics));
+    const bestCombo  = inCombos[0];
+    bestParams       = bestCombo.params;
+    inSampleScore    = scoreFn(bestCombo.metrics);
+    inSampleSharpe   = bestCombo.metrics.sharpe;
+    inSampleCAGR     = bestCombo.metrics.cagr;
+    inSampleMDD      = bestCombo.metrics.mdd;
+    inSampleComboCnt = inCombos.length;
+  }
+
+  // ── OOS 验证（两种模式完全相同）──
   const outBt      = portfolioBacktest(histData, commonTs, qqqCloses, bestParams, inEnd, N);
   const outMetrics = calcPortMetrics(outBt.equityCurve, outBt.timestamps);
 
@@ -817,44 +851,39 @@ function runWFO(histData, commonTs, qqqCloses, optMetric='sharpe') {
   const qqqOut        = buildQqqEquity(qqqCloses, outBt.simStart, N);
   const qqqOutMetrics = calcPortMetrics(qqqOut.equityCurve, outBt.timestamps);
 
-  // ── Step 4: OOS 净值曲线（单窗口无需串接）──
   const allOutEquity = outBt.equityCurve.slice();
   const allOutTs     = outBt.timestamps.slice();
 
   const windowResult = {
     winIdx: 1,
-    // 时间范围（各列独立，供 UI 展示）
+    isFixedMode,
     inTsStart:  commonTs[0],
     inTsEnd:    commonTs[inEnd - 1],
     outTsStart: commonTs[inEnd],
     outTsEnd:   commonTs[N - 1],
-    // in-sample 选出的最佳参数（同时也是 out-of-sample 实际使用的参数）
     bestParams,
-    // in-sample 该参数的评分（用于审计）
-    inSampleScore:    scoreFn(bestCombo.metrics),
-    inSampleSharpe:   bestCombo.metrics.sharpe,
-    inSampleCAGR:     bestCombo.metrics.cagr,
-    inSampleMDD:      bestCombo.metrics.mdd,
-    inSampleComboCnt: inCombos.length,
-    // out-of-sample 实际绩效（in-sample 选出的参数跑出来的，不重新优化）
+    inSampleScore,
+    inSampleSharpe,
+    inSampleCAGR,
+    inSampleMDD,
+    inSampleComboCnt,
     outMetrics,
     qqqOutMetrics,
   };
 
-  // ── Step 5: WFO 总绩效（单窗口即等于 OOS 绩效）──
-  const combinedMetrics = calcPortMetrics(allOutEquity, allOutTs);
-
-  // QQQ 基准（全 OOS 期间）
+  const combinedMetrics    = calcPortMetrics(allOutEquity, allOutTs);
   const qqqWfo             = buildQqqEquity(qqqCloses, Math.max(inEnd, 205), N);
   const qqqWfoEq           = qqqWfo.equityCurve.slice(0, allOutEquity.length);
   const qqqCombinedMetrics = calcPortMetrics(qqqWfoEq, allOutTs.slice(0, qqqWfoEq.length));
 
   return {
+    isFixedMode,
+    fixedParams: isFixedMode ? fixedParams : null,
     windowResults: [windowResult],
     allOutEquity, allOutTs,
     combinedMetrics, qqqCombinedMetrics, qqqWfoEq,
     optMetric,
-    totalCombos: 448, // 4×7×4×4
+    totalCombos: isFixedMode ? 1 : 448,
     windowCount: 1,
     inDays, outDays,
   };
@@ -1319,6 +1348,8 @@ export default function App() {
   const [wfoResult,   setWfoResult]   = useState(null);
   const [wfoRunning,  setWfoRunning]  = useState(false);
   const [wfoOptMetric,setWfoOptMetric]= useState("sharpe"); // in-sample 优化指标
+  const [wfoMode,     setWfoMode]     = useState("auto");   // 'fixed' | 'auto'
+  const [appliedParams,setAppliedParams]= useState(null);   // 上次回测所用参数（WFO 固定参数模式用）
   const [showOpt,     setShowOpt]     = useState(false);
   const [showWfo,     setShowWfo]     = useState(false);
   const [darkMode,    setDarkMode]    = useState(true);
@@ -1450,6 +1481,8 @@ export default function App() {
   const runStratBacktest = useCallback((overrideParams)=>{
     if(!histData||!histTs) return;
     const params = overrideParams ?? stratParams;
+    setAppliedParams({...params}); // 记录本次回测参数，供 WFO 固定参数模式使用
+    setWfoMode('fixed');            // 运行回测后，WFO 自动切换到固定参数模式
     const qqqCloses=histData.get('__QQQ__').closes;
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
     const bt=portfolioBacktest(stockData,histTs,qqqCloses,params);
@@ -1471,16 +1504,17 @@ export default function App() {
     setOptResult(combos); setOptRunning(false);
   },[histData,histTs]);
 
-  // Walk Forward Optimization (Mode B)
+  // Walk Forward Optimization（双模式）
   const handleRunWFO = useCallback(async ()=>{
     if(!histData||!histTs) return;
     setWfoRunning(true); setWfoResult(null);
     await new Promise(r=>setTimeout(r,50));
     const qqqCloses=histData.get('__QQQ__').closes;
     const stockData=new Map([...histData].filter(([k])=>k!=='__QQQ__'));
-    const result=runWFO(stockData,histTs,qqqCloses,wfoOptMetric);
+    const fixedArg = wfoMode === 'fixed' ? appliedParams : null; // 固定参数模式 or 自动寻优
+    const result=runWFO(stockData,histTs,qqqCloses,wfoOptMetric,fixedArg);
     setWfoResult(result); setWfoRunning(false);
-  },[histData,histTs,wfoOptMetric]);
+  },[histData,histTs,wfoOptMetric,wfoMode,appliedParams]);
 
   const { sorted, passCount, mAbs20, mAbs50, mAbs200, rankMap } = useMemo(()=>{
     const ret200vals=results.map(r=>r.ret200??0).sort((a,b)=>a-b);
@@ -2169,64 +2203,105 @@ export default function App() {
               {showWfo&&(
                 <div style={{padding:"16px 20px",background:T.cardBg,border:`1px solid ${T.border}`,borderTop:"none",borderRadius:"0 0 8px 8px"}}>
 
-                  {/* 说明 */}
-                  <div style={{fontSize:10,color:T.textMuted,marginBottom:10,lineHeight:1.6}}>
-                    <b style={{color:T.textSub}}>单窗口 WFO 逻辑</b>（推荐先加载 10 年数据）：
-                    ① 前 70% 数据做 in-sample，跑 Grid Search（448种组合）→
-                    ② 按优化指标选最佳参数 →
-                    ③ <b style={{color:"#88bbff"}}>固定该参数</b>跑后 30% out-of-sample →
-                    ④ 记录 OOS 绩效（不重新选参，不事后调整）。
-                    <span style={{color:"#88bbff",marginLeft:6}}>
-                      🔒 <b>IS / OOS 参数严格一致</b>：OOS 期使用的参数 = IS 期 Grid Search 选出的最优参数，绝不事后调整。
-                    </span>
-                  </div>
-
-                  {/* 优化指标选择 */}
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-                    <span style={{fontSize:10,color:T.textSub,whiteSpace:"nowrap"}}>in-sample 优化指标：</span>
-                    {[{v:"sharpe",l:"Sharpe（推荐）"},{v:"cagr",l:"CAGR"},{v:"calmar",l:"Calmar (CAGR/MDD)"}].map(({v,l})=>(
-                      <button key={v} onClick={()=>setWfoOptMetric(v)}
-                        style={{padding:"4px 10px",fontSize:10,...activeButtonStyle(wfoOptMetric===v,T)}}>{l}</button>
+                  {/* ── 双模式 Tab 切换 ── */}
+                  <div style={{display:"flex",gap:0,marginBottom:14,border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",width:"fit-content"}}>
+                    {[
+                      {id:"fixed", icon:"📌", label:"固定参数 OOS 验证", desc:"用已选参数跑样本外"},
+                      {id:"auto",  icon:"🔍", label:"自动寻优 WFO",       desc:"IS Grid Search 选最优"},
+                    ].map(({id,icon,label,desc})=>(
+                      <button key={id} onClick={()=>setWfoMode(id)} style={{
+                        padding:"8px 16px",cursor:"pointer",fontFamily:"inherit",fontSize:11,
+                        background: wfoMode===id?(darkMode?"#2a1a44":"#f0eaff"):"transparent",
+                        borderRight:`1px solid ${T.border}`,border:"none",
+                        color: wfoMode===id?(darkMode?"#cc99ff":"#5522aa"):T.textSub,
+                        fontWeight: wfoMode===id?600:400,
+                      }}>
+                        {icon} {label}
+                        <div style={{fontSize:9,color:T.textMuted,marginTop:1}}>{desc}</div>
+                      </button>
                     ))}
                   </div>
 
-                  <button disabled={wfoRunning} onClick={handleRunWFO} style={{padding:"6px 20px",borderRadius:6,cursor:wfoRunning?"not-allowed":"pointer",
-                    fontFamily:"inherit",fontSize:12,background:darkMode?"#220044":"#5522aa",
-                    border:"1px solid #9966ee",color:darkMode?"#cc99ff":"#ffffff",opacity:wfoRunning?0.6:1,marginBottom:16}}>
-                    {wfoRunning?"⏳ 运行中（448种参数组合）…":"▶ 运行 Walk Forward Optimization"}
+                  {/* 固定参数模式：显示已选参数 */}
+                  {wfoMode==="fixed"&&(
+                    <div style={{marginBottom:14,padding:"10px 14px",
+                      background:darkMode?"#0a2a0a":"#f0fff0",
+                      border:`1px solid ${darkMode?"#1a5a1a":"#88cc88"}`,borderRadius:7}}>
+                      {appliedParams ? (
+                        <>
+                          <div style={{fontSize:10,color:darkMode?"#88cc88":"#226622",marginBottom:4}}>
+                            📌 已选参数（将用于 OOS 验证，IS 期只计算参考绩效）
+                          </div>
+                          <div style={{fontFamily:"monospace",fontSize:11,color:darkMode?"#aaffaa":"#004400"}}>
+                            {[
+                              `动能：${{score:"综合",ret20:"20日",ret50:"50日",ret200:"200日"}[appliedParams.sortMetric]||appliedParams.sortMetric}`,
+                              `Top ${appliedParams.topN}`,
+                              `调仓：${{daily:"每日",weekly:"每周",monthly:"每月",quarterly:"每季"}[appliedParams.rebalanceFreq]||appliedParams.rebalanceFreq}`,
+                              `过滤：${{none:"不过滤",ma50:"MA50",ma100:"MA100",ma200:"MA200"}[appliedParams.marketFilter]||"—"}`,
+                            ].join("  |  ")}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{fontSize:10,color:darkMode?"#cc8800":"#886600"}}>
+                          ⚠ 尚未运行过回测，请先在上方「▶ 运行固定参数回测」或「应用并回测」后再使用此模式
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 自动寻优模式：说明 + 优化指标 */}
+                  {wfoMode==="auto"&&(
+                    <>
+                      <div style={{fontSize:10,color:T.textMuted,marginBottom:10,lineHeight:1.6}}>
+                        前 70% 数据做 in-sample，跑 Grid Search（<b style={{color:T.textBright}}>448种组合</b>）→
+                        按优化指标选最佳参数 → <b style={{color:"#88bbff"}}>固定该参数</b>跑后 30% out-of-sample。
+                        <span style={{color:"#88bbff",marginLeft:4}}>🔒 IS / OOS 参数严格一致，不事后调参。</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                        <span style={{fontSize:10,color:T.textSub,whiteSpace:"nowrap"}}>in-sample 优化指标：</span>
+                        {[{v:"sharpe",l:"Sharpe（推荐）"},{v:"cagr",l:"CAGR"},{v:"calmar",l:"Calmar"}].map(({v,l})=>(
+                          <button key={v} onClick={()=>setWfoOptMetric(v)}
+                            style={{padding:"4px 10px",fontSize:10,...activeButtonStyle(wfoOptMetric===v,T)}}>{l}</button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <button disabled={wfoRunning||(wfoMode==="fixed"&&!appliedParams)} onClick={handleRunWFO}
+                    style={{padding:"6px 20px",borderRadius:6,fontFamily:"inherit",fontSize:12,
+                      cursor:(wfoRunning||(wfoMode==="fixed"&&!appliedParams))?"not-allowed":"pointer",
+                      background:darkMode?"#220044":"#5522aa",
+                      border:"1px solid #9966ee",color:darkMode?"#cc99ff":"#ffffff",
+                      opacity:(wfoRunning||(wfoMode==="fixed"&&!appliedParams))?0.6:1,marginBottom:16}}>
+                    {wfoRunning
+                      ? (wfoMode==="fixed" ? "⏳ 固定参数 OOS 验证中…" : "⏳ 运行中（448种参数组合）…")
+                      : (wfoMode==="fixed" ? "▶ 运行固定参数 OOS 验证" : "▶ 运行 Walk Forward Optimization")}
                   </button>
 
                   {wfoResult&&(()=>{
                     const cm=wfoResult.combinedMetrics, qm=wfoResult.qqqCombinedMetrics;
                     const optLabel = {sharpe:"Sharpe",cagr:"CAGR",calmar:"Calmar"}[wfoResult.optMetric]||wfoResult.optMetric;
+                    const isFixed  = wfoResult.isFixedMode;
                     return (
                       <>
                         {/* 运行摘要 */}
                         <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:14,padding:"10px 14px",
                           background:T.cardBg2,border:`1px solid ${T.border}`,borderRadius:7,fontSize:10}}>
-                          <span style={{color:T.textSub}}>模式：<b style={{color:"#cc99ff"}}>单窗口 70% IS / 30% OOS</b></span>
+                          <span style={{color:T.textSub}}>模式：<b style={{color:isFixed?"#88cc88":"#cc99ff"}}>
+                            {isFixed?"📌 固定参数 OOS 验证":"🔍 自动寻优 WFO（单窗口 70% IS / 30% OOS）"}
+                          </b></span>
                           <span style={{color:T.textSub}}>IS 天数：<b style={{color:T.textBright}}>{wfoResult.inDays}</b></span>
                           <span style={{color:T.textSub}}>OOS 天数：<b style={{color:T.textBright}}>{wfoResult.outDays}</b></span>
-                          <span style={{color:T.textSub}}>Grid Search 参数组合：<b style={{color:T.textBright}}>{wfoResult.totalCombos}</b> 种</span>
-                          <span style={{color:T.textSub}}>IS 优化指标：<b style={{color:"#cc99ff"}}>{optLabel}</b></span>
+                          {!isFixed&&<span style={{color:T.textSub}}>Grid Search 参数组合：<b style={{color:T.textBright}}>{wfoResult.totalCombos}</b> 种</span>}
+                          {!isFixed&&<span style={{color:T.textSub}}>IS 优化指标：<b style={{color:"#cc99ff"}}>{optLabel}</b></span>}
                         </div>
 
                         {/* ── 逐窗口明细表 ── */}
                         <div style={{fontSize:10,color:T.textSub,letterSpacing:1,marginBottom:6}}>
-                          逐窗口明细（in-sample 选参 → out-of-sample 验证）
-                        </div>
-                        {/* IS = OOS 参数一致性说明 */}
-                        <div style={{
-                          padding:"8px 12px",marginBottom:10,
-                          background:"#4488ee14",border:"1px solid #4488ee40",
-                          borderRadius:6,fontSize:10,color:T.textSub,lineHeight:1.6,
-                        }}>
-                          ⚡ <b style={{color:"#88bbff"}}>参数一致性保证</b>：每个窗口的 OOS 期间
-                          严格使用 IS 期选出的最佳参数，<b style={{color:T.textBright}}>不重新优化、不事后调参</b>。
-                          下表各参数列（紫色）同时标注 IS 选参结果 = OOS 实际使用参数。
+                          {isFixed?"逐窗口明细（固定参数 IS 参考绩效 + OOS 验证）":"逐窗口明细（in-sample 选参 → out-of-sample 验证）"}
                         </div>
                         <div style={{overflowX:"auto",marginBottom:20}}>
-                          <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:10,minWidth:1100}}>
+                          <table style={{width:"100%",borderCollapse:"separate",borderSpacing:0,fontSize:10,minWidth:isFixed?900:1100}}>
                             <thead>
                               <tr>
                                 {[
@@ -2235,21 +2310,22 @@ export default function App() {
                                   {h:"IS 结束",      note:"In-Sample End",      group:"is"},
                                   {h:"OOS 开始",     note:"Out-of-Sample Start",group:"oos"},
                                   {h:"OOS 结束",     note:"Out-of-Sample End",  group:"oos"},
-                                  {h:"Selected TopN",          note:"IS→OOS 参数一致",group:"param"},
-                                  {h:"Selected Lookback",      note:"IS→OOS 参数一致",group:"param"},
-                                  {h:"Selected Rebalance",     note:"IS→OOS 参数一致",group:"param"},
-                                  {h:"Selected Market Filter", note:"IS→OOS 参数一致",group:"param"},
-                                  {h:`IS ${optLabel} Score`,   note:"in-sample 优化得分",group:""},
+                                  {h:"TopN",              note:isFixed?"固定参数":"IS→OOS 参数",group:"param"},
+                                  {h:"动能回看",          note:isFixed?"固定参数":"IS→OOS 参数",group:"param"},
+                                  {h:"调仓频率",          note:isFixed?"固定参数":"IS→OOS 参数",group:"param"},
+                                  {h:"市场过滤",          note:isFixed?"固定参数":"IS→OOS 参数",group:"param"},
+                                  ...(!isFixed?[{h:`IS ${optLabel}`,note:"in-sample 最优得分",group:""}]:[]),
+                                  {h:"IS CAGR",      note:"IS 参考（仅展示）",group:"is"},
+                                  {h:"IS Sharpe",    note:"IS 参考（仅展示）",group:"is"},
                                   {h:"OOS CAGR",     note:"Out-of-Sample",group:"oos"},
                                   {h:"OOS Sharpe",   note:"Out-of-Sample",group:"oos"},
                                   {h:"OOS MDD",      note:"Out-of-Sample",group:"oos"},
-                                  {h:"OOS Total Ret",note:"Out-of-Sample",group:"oos"},
                                   {h:"QQQ CAGR",     note:"同期基准",      group:""},
                                   {h:"操作",         note:"",               group:""},
                                 ].map(({h,note,group})=>(
                                   <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:500,fontSize:9,
                                     background:T.theadBg,boxShadow:`0 1px 0 ${T.border}`,whiteSpace:"nowrap",
-                                    color:group==="param"?"#cc99ff":group==="oos"?"#88bbff":T.textSub}}>
+                                    color:group==="param"?"#cc99ff":group==="oos"?"#88bbff":group==="is"?"#aaaaaa":T.textSub}}>
                                     {h}
                                     {note&&<div style={{fontSize:8,color:T.textMuted,fontWeight:400}}>{note}</div>}
                                   </th>
@@ -2266,20 +2342,24 @@ export default function App() {
                                 return (
                                   <tr key={i} style={{background:i%2===0?T.cardBg:T.cardBg2}}>
                                     <td style={{padding:"7px 10px",color:T.textSub,textAlign:"center",fontWeight:700}}>{w.winIdx}</td>
-                                    {/* ── IS 时间（2列）── */}
                                     <td style={{padding:"7px 10px",color:T.textMuted,whiteSpace:"nowrap"}}>{fmtDate(w.inTsStart)}</td>
                                     <td style={{padding:"7px 10px",color:T.textMuted,whiteSpace:"nowrap"}}>{fmtDate(w.inTsEnd)}</td>
-                                    {/* ── OOS 时间（2列）── */}
                                     <td style={{padding:"7px 10px",color:T.textBright,whiteSpace:"nowrap",fontWeight:600}}>{fmtDate(w.outTsStart)}</td>
                                     <td style={{padding:"7px 10px",color:T.textBright,whiteSpace:"nowrap",fontWeight:600}}>{fmtDate(w.outTsEnd)}</td>
-                                    {/* ── in-sample 选出的参数（4列，IS=OOS 同一组参数）── */}
                                     <td style={{padding:"7px 10px",color:"#cc99ff",fontFamily:"monospace",fontWeight:700}}>Top {bp.topN}</td>
                                     <td style={{padding:"7px 10px",color:"#cc99ff"}}>{smLabel}</td>
                                     <td style={{padding:"7px 10px",color:"#cc99ff"}}>{rfLabel}</td>
                                     <td style={{padding:"7px 10px",color:"#cc99ff",whiteSpace:"nowrap"}}>{mfLabel}</td>
-                                    {/* IS 评分 */}
-                                    <td style={{padding:"7px 10px",fontFamily:"monospace",color:T.textSub}}>{isScore!=null?isScore.toFixed(2):"—"}</td>
-                                    {/* ── out-of-sample 实际绩效（4列）── */}
+                                    {/* IS Score 列仅自动模式显示 */}
+                                    {!isFixed&&<td style={{padding:"7px 10px",fontFamily:"monospace",color:T.textSub}}>{isScore!=null?isScore.toFixed(2):"—"}</td>}
+                                    {/* IS 参考绩效（两模式均显示，固定模式标注"参考"）*/}
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",color:"#888888"}}>
+                                      {w.inSampleCAGR!=null?fmtPct(w.inSampleCAGR,1):"—"}
+                                    </td>
+                                    <td style={{padding:"7px 10px",fontFamily:"monospace",color:"#888888"}}>
+                                      {w.inSampleSharpe!=null?w.inSampleSharpe.toFixed(2):"—"}
+                                    </td>
+                                    {/* OOS 实际绩效 */}
                                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontWeight:700,
                                       color:w.outMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>
                                       {w.outMetrics?fmtPct(w.outMetrics.cagr,1):"—"}
@@ -2289,10 +2369,6 @@ export default function App() {
                                     </td>
                                     <td style={{padding:"7px 10px",fontFamily:"monospace",color:"#ee3344"}}>
                                       {w.outMetrics?fmtPct(w.outMetrics.mdd,1):"—"}
-                                    </td>
-                                    <td style={{padding:"7px 10px",fontFamily:"monospace",
-                                      color:w.outMetrics?.total>=0?"#00aa44":"#ee3344"}}>
-                                      {w.outMetrics?fmtPct(w.outMetrics.total,1):"—"}
                                     </td>
                                     <td style={{padding:"7px 10px",fontFamily:"monospace",
                                       color:w.qqqOutMetrics?.cagr>=0?"#00aa44":"#ee3344"}}>

@@ -447,6 +447,10 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   const [wfoOptMetric, setWfoOptMetric] = useState('sharpe');
   const [showWfo,      setShowWfo]      = useState(false);
   const [wfoPhase,     setWfoPhase]     = useState('');
+  // 追踪最后一次「应用并回测」的参数（固定参数 OOS 验证用）
+  const [appliedParams, setAppliedParams] = useState(null);
+  // WFO 运行模式：'fixed' = 固定参数OOS验证 / 'auto' = 自动寻优
+  const [wfoMode, setWfoMode] = useState('auto');
 
   // ── 本地数据加载 ──
   const histAbortRef = useRef(null);
@@ -530,6 +534,9 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
 
   // ── 运行手动回测 ──
   const handleRunBacktest = useCallback(() => {
+    // 同步记录当前 Step 1 参数为「已应用参数」，WFO 固定参数模式将使用它
+    setAppliedParams({ ...params });
+    setWfoMode('fixed');
     setBtRunning(true);
     setBtResult(null);
     setTimeout(() => {
@@ -554,6 +561,8 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   // ── 应用参数并立即运行回测（Step 2 表格行按钮用）──
   const handleApplyAndBacktest = useCallback((rowParams) => {
     setParams({ ...rowParams });
+    setAppliedParams({ ...rowParams }); // 记录本次应用的参数，供 WFO 固定参数模式使用
+    setWfoMode('fixed');                // 自动切换 WFO 到固定参数模式
     setBtRunning(true);
     setBtResult(null);
     setTimeout(() => {
@@ -589,22 +598,28 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
 
   // ── 运行 WFO ──
   const handleRunWFO = useCallback(async () => {
+    if (wfoMode === 'fixed' && !appliedParams) {
+      alert('请先在「一键优化」中选择策略并点击「应用并回测」，再运行固定参数验证。');
+      return;
+    }
     setWfoRunning(true);
     setWfoResult(null);
-    setWfoPhase('IS Grid Search 运行中…');
+    const fixedArg = wfoMode === 'fixed' ? appliedParams : null;
+    setWfoPhase(fixedArg ? 'OOS 验证中…' : 'IS Grid Search 运行中…');
     try {
       const res = await runQqqWFO(
         effData, effTs, wfoOptMetric,
         (phase, done, total) => {
           if (phase === 'is') setWfoPhase(`IS Grid Search ${done}/${total}…`);
           else                setWfoPhase('OOS 验证中…');
-        }
+        },
+        fixedArg  // null = 自动寻优；否则固定参数OOS验证
       );
       setWfoResult(res);
     } catch (e) { console.error('QQQ WFO error:', e); }
     setWfoRunning(false);
     setWfoPhase('');
-  }, [effData, effTs, wfoOptMetric]);
+  }, [effData, effTs, wfoOptMetric, wfoMode, appliedParams]);
 
   // ── 当前操作信号（基于手动回测参数）──
   const signal = useMemo(() => {
@@ -1265,7 +1280,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
         )}
       </div>
 
-      {/* ═══════ STEP 3：Walk Forward Optimization ═══════ */}
+      {/* ═══════ STEP 3：Walk Forward OOS 验证 ═══════ */}
       <div style={{ marginBottom: 20 }}>
         {/* 折叠按钮 */}
         <button
@@ -1278,58 +1293,114 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
         >
           <span style={{ color: '#aa66ff', fontWeight: 700 }}>{showWfo ? '▼' : '▶'}</span>
           <span style={{ background: '#5522aa', color: '#ddb8ff', fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4, letterSpacing: 1 }}>MODE B</span>
-          Walk Forward Optimization（单窗口：前 70% IS 训练 → 后 30% OOS 验证）
+          Walk Forward OOS 验证（单窗口：前 70% 参考期 → 后 30% 样本外）
           {wfoResult && <span style={{ marginLeft: 'auto', color: '#00aa44', fontSize: 10 }}>✓ 已完成</span>}
         </button>
 
         {showWfo && (
           <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderTop: 'none', borderRadius: '0 0 8px 8px' }}>
 
-            {/* 说明 */}
-            <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 10, lineHeight: 1.7 }}>
-              <b style={{ color: T.textSub }}>单窗口 WFO 逻辑</b>（推荐先加载 10 年数据）：
-              ① 前 70% 数据做 in-sample，跑 Grid Search（288 种组合）→
-              ② 按优化指标选最佳参数 →
-              ③ <b style={{ color: '#88bbff' }}>固定该参数</b>跑后 30% out-of-sample →
-              ④ 记录 OOS 绩效（不重新选参，不事后调整）。
-              <span style={{ color: '#88bbff', marginLeft: 6 }}>
-                🔒 <b>IS / OOS 参数严格一致</b>：OOS 使用的参数 = IS Grid Search 选出的最优参数。
-              </span>
+            {/* 模式切换 */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 16, border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' }}>
+              {[
+                { val: 'fixed', icon: '📌', title: '固定参数 OOS 验证', desc: '用你已选中的参数，在后30%数据验证稳定性（不重新搜索）' },
+                { val: 'auto',  icon: '🔍', title: '自动寻优 WFO',      desc: '前70%跑288种组合选最优 → 后30%验证（无前视偏差）' },
+              ].map((m, idx) => {
+                const active = wfoMode === m.val;
+                return (
+                  <button key={m.val} onClick={() => !wfoRunning && setWfoMode(m.val)} style={{
+                    flex: 1, padding: '10px 14px', textAlign: 'left',
+                    cursor: wfoRunning ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    background: active ? '#9944ee22' : T.pageBg,
+                    border: 'none',
+                    borderLeft: idx > 0 ? `1px solid ${T.border}` : 'none',
+                    borderBottom: active ? '2px solid #9944ee' : '2px solid transparent',
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: active ? '#cc99ff' : T.textSub, marginBottom: 2 }}>
+                      {m.icon} {m.title}
+                    </div>
+                    <div style={{ fontSize: 9, color: T.textMuted, lineHeight: 1.5 }}>{m.desc}</div>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* IS 优化指标选择 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, color: T.textSub, whiteSpace: 'nowrap' }}>in-sample 优化指标：</span>
-              {[{ v: 'sharpe', l: 'Sharpe（推荐）' }, { v: 'cagr', l: 'CAGR' }, { v: 'calmar', l: 'Calmar (CAGR/MDD)' }].map(({ v, l }) => (
-                <button key={v} onClick={() => setWfoOptMetric(v)} style={{
-                  padding: '4px 10px', fontSize: 10, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
-                  background: wfoOptMetric === v ? (darkMode ? '#004488' : '#0055cc') : 'transparent',
-                  border: `1px solid ${wfoOptMetric === v ? '#4488ee' : T.border}`,
-                  color: wfoOptMetric === v ? '#fff' : T.textSub,
-                  fontWeight: wfoOptMetric === v ? 600 : 400,
-                }}>{l}</button>
-              ))}
-            </div>
+            {/* 固定参数模式：显示已选参数 */}
+            {wfoMode === 'fixed' && (
+              <div style={{
+                padding: '10px 14px', marginBottom: 14,
+                background: appliedParams ? '#4fc86e0d' : '#ee444411',
+                border: `1px solid ${appliedParams ? '#4fc86e33' : '#ee444433'}`,
+                borderRadius: 8, fontSize: 10,
+              }}>
+                {appliedParams ? (
+                  <>
+                    <div style={{ color: '#4fc86e', fontWeight: 700, marginBottom: 6 }}>
+                      ✅ 已选参数（将直接用于 OOS，不重新搜索）
+                    </div>
+                    <div style={{
+                      fontFamily: 'monospace', fontSize: 11, color: '#cc99ff', fontWeight: 600,
+                      padding: '5px 10px', background: '#cc99ff11', borderRadius: 5,
+                      border: '1px solid #cc99ff33', display: 'inline-block',
+                    }}>
+                      {paramLabelQqq(appliedParams)}
+                    </div>
+                    <div style={{ marginTop: 8, color: T.textMuted, lineHeight: 1.6 }}>
+                      📊 后 30% OOS 数据完全用此参数回测。验证的是：
+                      <b style={{ color: T.textBright }}>这组参数在它从未见过的数据上是否依然有效</b>。
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ color: '#ee4444' }}>
+                    ⚠ 尚未选择参数。请在「一键优化」结果表中点击「应用并回测」，再来运行固定参数验证。
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 自动寻优模式：IS 优化指标选择 */}
+            {wfoMode === 'auto' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10, color: T.textSub, whiteSpace: 'nowrap' }}>IS 优化指标：</span>
+                {[{ v: 'sharpe', l: 'Sharpe（推荐）' }, { v: 'cagr', l: 'CAGR' }, { v: 'calmar', l: 'Calmar (CAGR/MDD)' }].map(({ v, l }) => (
+                  <button key={v} onClick={() => setWfoOptMetric(v)} style={{
+                    padding: '4px 10px', fontSize: 10, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                    background: wfoOptMetric === v ? (darkMode ? '#004488' : '#0055cc') : 'transparent',
+                    border: `1px solid ${wfoOptMetric === v ? '#4488ee' : T.border}`,
+                    color: wfoOptMetric === v ? '#fff' : T.textSub,
+                    fontWeight: wfoOptMetric === v ? 600 : 400,
+                  }}>{l}</button>
+                ))}
+              </div>
+            )}
 
             {/* 运行按钮 */}
             <button
-              disabled={wfoRunning}
+              disabled={wfoRunning || (wfoMode === 'fixed' && !appliedParams)}
               onClick={handleRunWFO}
               style={{
-                padding: '6px 20px', borderRadius: 6, cursor: wfoRunning ? 'not-allowed' : 'pointer',
+                padding: '6px 20px', borderRadius: 6,
+                cursor: (wfoRunning || (wfoMode === 'fixed' && !appliedParams)) ? 'not-allowed' : 'pointer',
                 fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
                 background: darkMode ? '#220044' : '#5522aa',
                 border: '1px solid #9966ee', color: darkMode ? '#cc99ff' : '#fff',
-                opacity: wfoRunning ? 0.6 : 1, marginBottom: 16,
+                opacity: (wfoRunning || (wfoMode === 'fixed' && !appliedParams)) ? 0.5 : 1,
+                marginBottom: 16,
               }}
             >
-              {wfoRunning ? `⏳ ${wfoPhase || '运行中（288种参数组合）…'}` : '▶ 运行 Walk Forward Optimization'}
+              {wfoRunning
+                ? `⏳ ${wfoPhase || '运行中…'}`
+                : wfoMode === 'fixed'
+                  ? '📌 运行固定参数 OOS 验证'
+                  : '▶ 运行自动寻优 WFO（288种组合）'}
             </button>
 
             {/* WFO 结果 */}
             {wfoResult && (() => {
               const cm = wfoResult.combinedMetrics;
               const qm = wfoResult.qqqCombinedMetrics;
+              const isFixed = wfoResult.isFixedMode;
               const optLabel = { sharpe: 'Sharpe', cagr: 'CAGR', calmar: 'Calmar' }[wfoResult.optMetric] || wfoResult.optMetric;
 
               const lbLabel  = p => ({ 20: '20D', 21: '1M', 50: '50D', 63: '3M', 126: '6M', 200: '200D' }[p.lookback] ?? `${p.lookback}D`);
@@ -1342,42 +1413,55 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                 <>
                   {/* 运行摘要 */}
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, padding: '10px 14px', background: T.pageBg, border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 10 }}>
-                    <span style={{ color: T.textSub }}>模式：<b style={{ color: '#cc99ff' }}>单窗口 70% IS / 30% OOS</b></span>
-                    <span style={{ color: T.textSub }}>IS 天数：<b style={{ color: T.textBright }}>{wfoResult.inDays}</b></span>
-                    <span style={{ color: T.textSub }}>OOS 天数：<b style={{ color: T.textBright }}>{wfoResult.outDays}</b></span>
-                    <span style={{ color: T.textSub }}>Grid Search：<b style={{ color: T.textBright }}>{wfoResult.totalCombos}</b> 种组合</span>
-                    <span style={{ color: T.textSub }}>IS 优化指标：<b style={{ color: '#cc99ff' }}>{optLabel}</b></span>
+                    <span style={{ color: T.textSub }}>
+                      模式：<b style={{ color: '#cc99ff' }}>{isFixed ? '固定参数 OOS 验证' : '自动寻优 WFO'}</b>
+                    </span>
+                    <span style={{ color: T.textSub }}>IS/参考期：<b style={{ color: T.textBright }}>{wfoResult.inDays} 天（70%）</b></span>
+                    <span style={{ color: T.textSub }}>OOS 天数：<b style={{ color: T.textBright }}>{wfoResult.outDays} 天（30%）</b></span>
+                    {isFixed
+                      ? <span style={{ color: T.textSub }}>参数：<b style={{ color: '#cc99ff' }}>{paramLabelQqq(wfoResult.fixedParams)}</b></span>
+                      : <span style={{ color: T.textSub }}>Grid Search：<b style={{ color: T.textBright }}>{wfoResult.totalCombos}</b> 种组合 · IS 指标：<b style={{ color: '#cc99ff' }}>{optLabel}</b></span>
+                    }
                   </div>
 
-                  {/* 参数一致性说明 */}
-                  <div style={{ padding: '8px 12px', marginBottom: 10, background: '#4488ee14', border: '1px solid #4488ee40', borderRadius: 6, fontSize: 10, color: T.textSub, lineHeight: 1.6 }}>
-                    ⚡ <b style={{ color: '#88bbff' }}>参数一致性保证</b>：OOS 期间严格使用 IS 期选出的最佳参数，
-                    <b style={{ color: T.textBright }}>不重新优化、不事后调参</b>。
-                    下表参数列（紫色）同时标注 IS 选参结果 = OOS 实际使用参数。
+                  {/* 参数说明 */}
+                  <div style={{
+                    padding: '8px 12px', marginBottom: 10,
+                    background: isFixed ? '#4fc86e14' : '#4488ee14',
+                    border: `1px solid ${isFixed ? '#4fc86e40' : '#4488ee40'}`,
+                    borderRadius: 6, fontSize: 10, color: T.textSub, lineHeight: 1.6,
+                  }}>
+                    {isFixed
+                      ? <>📌 <b style={{ color: '#4fc86e' }}>固定参数验证</b>：OOS 期间使用
+                          「<span style={{ color: '#cc99ff', fontWeight: 600 }}>{paramLabelQqq(wfoResult.fixedParams)}</span>」，
+                          <b style={{ color: T.textBright }}>完全固定，IS 期仅供参考</b>。</>
+                      : <>⚡ <b style={{ color: '#88bbff' }}>自动寻优</b>：OOS 严格使用 IS 期选出的最优参数，
+                          <b style={{ color: T.textBright }}>不重新优化、不事后调参</b>。</>
+                    }
                   </div>
 
                   {/* 窗口明细表 */}
                   <div style={{ overflowX: 'auto', marginBottom: 20 }}>
-                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 10, minWidth: 1000 }}>
+                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 10, minWidth: 900 }}>
                       <thead>
                         <tr>
                           {[
-                            { h: '#',                    group: '' },
-                            { h: 'IS 开始',              group: 'is',    note: 'In-Sample Start' },
-                            { h: 'IS 结束',              group: 'is',    note: 'In-Sample End' },
-                            { h: 'OOS 开始',             group: 'oos',   note: 'Out-of-Sample Start' },
-                            { h: 'OOS 结束',             group: 'oos',   note: 'Out-of-Sample End' },
-                            { h: 'Selected Lookback',    group: 'param', note: 'IS→OOS 参数一致' },
-                            { h: 'Selected TopN',        group: 'param', note: 'IS→OOS 参数一致' },
-                            { h: 'Selected Rebalance',   group: 'param', note: 'IS→OOS 参数一致' },
-                            { h: 'Selected Filter',      group: 'param', note: 'IS→OOS 参数一致' },
-                            { h: `IS ${optLabel} Score`, group: '',      note: 'in-sample 优化得分' },
-                            { h: 'OOS CAGR',             group: 'oos',   note: 'Out-of-Sample' },
-                            { h: 'OOS Sharpe',           group: 'oos',   note: 'Out-of-Sample' },
-                            { h: 'OOS MDD',              group: 'oos',   note: 'Out-of-Sample' },
-                            { h: 'OOS Total Ret',        group: 'oos',   note: 'Out-of-Sample' },
-                            { h: 'QQQ CAGR',             group: '',      note: '同期基准' },
-                            { h: '操作',                 group: '',      note: '' },
+                            { h: '#',                                                    group: '' },
+                            { h: 'IS/参考期 开始',                                        group: 'is',    note: isFixed ? '固定参数参考' : 'In-Sample' },
+                            { h: 'IS/参考期 结束',                                        group: 'is',    note: isFixed ? '固定参数参考' : 'In-Sample' },
+                            { h: 'OOS 开始',                                              group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS 结束',                                              group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'Lookback',                                              group: 'param', note: isFixed ? '固定' : 'IS→OOS' },
+                            { h: 'TopN',                                                  group: 'param', note: isFixed ? '固定' : 'IS→OOS' },
+                            { h: 'Rebalance',                                             group: 'param', note: isFixed ? '固定' : 'IS→OOS' },
+                            { h: 'Filter',                                                group: 'param', note: isFixed ? '固定' : 'IS→OOS' },
+                            { h: isFixed ? 'IS CAGR（参考）' : `IS ${optLabel} Score`,   group: '',      note: isFixed ? '不用于选参' : 'in-sample 优化得分' },
+                            { h: 'OOS CAGR',      group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS Sharpe',    group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS MDD',       group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'OOS Total Ret', group: 'oos',   note: 'Out-of-Sample' },
+                            { h: 'QQQ CAGR',      group: '',      note: '同期基准' },
+                            ...(!isFixed ? [{ h: '操作', group: '', note: '' }] : []),
                           ].map(({ h, group, note }) => (
                             <th key={h} style={{
                               padding: '6px 10px', textAlign: 'left', fontWeight: 500, fontSize: 9,
@@ -1393,7 +1477,9 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                       <tbody>
                         {wfoResult.windowResults.map((w, i) => {
                           const bp = w.bestParams;
-                          const isScore = wfoResult.optMetric === 'cagr' ? w.inSampleCAGR : w.inSampleSharpe;
+                          const isScoreDisplay = isFixed
+                            ? fmtPct(w.inSampleCAGR)
+                            : (wfoResult.optMetric === 'cagr' ? fmtPct(w.inSampleCAGR) : (w.inSampleSharpe?.toFixed(2) ?? '—'));
                           return (
                             <tr key={i} style={{ background: i % 2 === 0 ? T.cardBg : T.pageBg }}>
                               <td style={{ padding: '7px 10px', color: T.textMuted, textAlign: 'center', fontWeight: 700 }}>{w.winIdx}</td>
@@ -1405,7 +1491,10 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                               <td style={{ padding: '7px 10px', color: '#cc99ff', fontWeight: 700 }}>Top {bp.topN}</td>
                               <td style={{ padding: '7px 10px', color: '#cc99ff' }}>{rfLabel(bp)}</td>
                               <td style={{ padding: '7px 10px', color: '#cc99ff', whiteSpace: 'nowrap' }}>{mfLabel(bp)}</td>
-                              <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: T.textSub }}>{isScore != null ? isScore.toFixed(2) : '—'}</td>
+                              <td style={{ padding: '7px 10px', fontFamily: 'monospace',
+                                color: isFixed ? ((w.inSampleCAGR ?? 0) >= 0 ? '#00aa44' : '#ee3344') : T.textSub }}>
+                                {isScoreDisplay}
+                              </td>
                               <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 700, color: (w.outMetrics?.cagr ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>
                                 {w.outMetrics ? fmtPct(w.outMetrics.cagr) : '—'}
                               </td>
@@ -1421,20 +1510,22 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                               <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: (w.qqqOutMetrics?.cagr ?? 0) >= 0 ? '#00aa44' : '#ee3344' }}>
                                 {w.qqqOutMetrics ? fmtPct(w.qqqOutMetrics.cagr) : '—'}
                               </td>
-                              <td style={{ padding: '5px 8px' }}>
-                                <button
-                                  onClick={() => handleApplyAndBacktest(bp)}
-                                  style={{
-                                    padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
-                                    fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
-                                    background: darkMode ? '#004488' : '#0055cc',
-                                    border: '1px solid #4488ee', color: '#fff',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
-                                  应用并回测
-                                </button>
-                              </td>
+                              {!isFixed && (
+                                <td style={{ padding: '5px 8px' }}>
+                                  <button
+                                    onClick={() => handleApplyAndBacktest(bp)}
+                                    style={{
+                                      padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+                                      fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+                                      background: darkMode ? '#004488' : '#0055cc',
+                                      border: '1px solid #4488ee', color: '#fff',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    应用并回测
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -1446,7 +1537,8 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                   {wfoResult.allOutEquity.length > 10 && (
                     <div style={{ background: T.pageBg, border: `1px solid ${T.border}`, borderRadius: 8, padding: '14px 16px', overflowX: 'auto', marginBottom: 16 }}>
                       <div style={{ fontSize: 10, color: T.textSub, marginBottom: 8 }}>
-                        WFO OOS 净值曲线（策略 实线 vs QQQ 虚线）
+                        OOS 净值曲线（策略 实线 vs QQQ 虚线）
+                        {isFixed && <span style={{ color: '#4fc86e', marginLeft: 8 }}>固定参数：{paramLabelQqq(wfoResult.fixedParams)}</span>}
                       </div>
                       <MiniLineChart
                         T={T}
@@ -1459,24 +1551,24 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                     </div>
                   )}
 
-                  {/* OOS Performance Summary（Mode B vs QQQ 绩效对比表） */}
+                  {/* OOS Performance Summary */}
                   <WfoSummaryTable
                     cm={cm}
                     benchmarks={[{ label: 'QQQ 基准', metrics: qm }]}
                     T={T} darkMode={darkMode}
                   />
 
-                  {/* Mode A vs Mode B 对比表 */}
+                  {/* 全量回测 vs OOS 对比表 */}
                   {btResult?.metrics && cm && (() => {
                     const sa = btResult.metrics;
                     const rows = [
-                      { mode: 'Mode A · Fixed Param Backtest（全量数据，含 in-sample）',        cagr: sa.cagr,  sharpe: sa.sharpe,  mdd: sa.mdd,  total: sa.totalReturn },
-                      { mode: 'Mode B · WFO OOS（纯 out-of-sample，无事后挑参）',               cagr: cm.cagr,  sharpe: cm.sharpe,  mdd: cm.mdd,  total: cm.totalReturn },
-                      { mode: 'QQQ Buy & Hold（同 OOS 期间基准）',                             cagr: qm?.cagr, sharpe: qm?.sharpe, mdd: qm?.mdd, total: qm?.totalReturn },
+                      { mode: `全量回测（含 IS 参考期 · ${isFixed ? '固定参数' : 'Mode A'} · 所有数据）`, cagr: sa.cagr, sharpe: sa.sharpe, mdd: sa.mdd, total: sa.totalReturn },
+                      { mode: `OOS 验证（后30% · ${isFixed ? '固定参数验证' : 'Mode B 自动寻优'} · 纯样本外）`, cagr: cm.cagr, sharpe: cm.sharpe, mdd: cm.mdd, total: cm.totalReturn },
+                      { mode: 'QQQ Buy & Hold（同 OOS 期间基准）', cagr: qm?.cagr, sharpe: qm?.sharpe, mdd: qm?.mdd, total: qm?.totalReturn },
                     ];
                     return (
                       <div style={{ marginTop: 8 }}>
-                        <div style={{ fontSize: 10, color: T.textSub, letterSpacing: 1, marginBottom: 8 }}>Mode A vs Mode B 最终对比</div>
+                        <div style={{ fontSize: 10, color: T.textSub, letterSpacing: 1, marginBottom: 8 }}>全量回测 vs OOS 对比</div>
                         <div style={{ overflowX: 'auto' }}>
                           <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 10, minWidth: 580 }}>
                             <thead>
