@@ -164,9 +164,28 @@ function SignalCard({ etfData, strategy, params, T }) {
     [etfData, strategy, JSON.stringify(params)]
   );
 
-  // ── 持仓对比 ──
-  const prevSignalRef = useRef(null);
-  const prevSignal = prevSignalRef.current;
+  // ── 我的实际持仓（localStorage 持久化，每个策略独立存储）──
+  const storageKey = `etf_${strategy}_holdings`;
+  const [myHoldings, setMyHoldings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`etf_${strategy}_holdings`) || 'null'); }
+    catch { return null; }
+  });
+  useEffect(() => {
+    if (myHoldings !== null) localStorage.setItem(storageKey, JSON.stringify(myHoldings));
+    else localStorage.removeItem(storageKey);
+  }, [myHoldings, storageKey]);
+  const confirmTrades = useCallback(() => {
+    if (!signal) return;
+    setMyHoldings({
+      holdings:    signal.holdings  || {},
+      isDefensive: signal.isDefensive,
+      prices:      signal.prices    || {},
+      date:        signal.date,
+    });
+  }, [signal]);
+
+  // ── 持仓对比（用 localStorage 持久化的持仓记录）──
+  const prevSignal = myHoldings;
   const isFirstSignal = !prevSignal || Object.keys(prevSignal.holdings || {}).length === 0;
 
   let sellList = [], buyList = [], holdList = [];
@@ -223,8 +242,6 @@ function SignalCard({ etfData, strategy, params, T }) {
       buyList.push({ sym: defSym, reason: signal.reason, price: null });
     }
   }
-
-  prevSignalRef.current = signal;
 
   // ── 资金流转 ──
   const cap = parseFloat(capital) || 0;
@@ -433,6 +450,31 @@ function SignalCard({ etfData, strategy, params, T }) {
         {signal.rebalFreq === 'daily'
           ? '⏰ 每个交易日收盘后检查波动率，档位变化则次日调仓；无变化则持仓不动'
           : '⏰ 月调仓策略：每 21 个交易日（约 1 个月）检查一次，信号不变则无需操作'}
+      </div>
+
+      {/* ── 确认调仓 + 持仓记录 ── */}
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={confirmTrades} style={{
+          padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
+          fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+          background: 'linear-gradient(135deg,#00aa44,#00cc55)',
+          border: 'none', color: '#fff', boxShadow: '0 2px 8px #00aa4444',
+        }}>✅ 我已完成调仓</button>
+        {myHoldings && (
+          <div style={{ fontSize: 10, color: T.textMuted, flex: 1 }}>
+            📌 上次确认：<b style={{ color: T.textSub }}>{myHoldings.date}</b>
+            {myHoldings.isDefensive
+              ? <span>，防御模式</span>
+              : <span>，持有 {Object.keys(myHoldings.holdings || {}).join(' / ')}</span>}
+          </div>
+        )}
+        {myHoldings && (
+          <button onClick={() => setMyHoldings(null)} style={{
+            padding: '5px 12px', borderRadius: 6, cursor: 'pointer',
+            fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+            background: 'transparent', border: `1px solid ${T.border}`, color: T.textMuted,
+          }}>🗑 清除记录</button>
+        )}
       </div>
     </div>
   );

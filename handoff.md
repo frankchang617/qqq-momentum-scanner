@@ -1,15 +1,15 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-27 Session 18（localStorage 持仓持久化功能完成）
+更新时间：2026-05-27 Session 18（全5策略 localStorage 持仓持久化进行中）
 
 ## 项目结构
 
 ```
-qqq-momentum.jsx              # QQQ 成分股动能扫描 + 成分股轮动
-src/etf/EtfStrategyTab.jsx   # ETF 三策略 + WFO
+qqq-momentum.jsx              # QQQ 成分股动能扫描 + 成分股轮动（本次改动）
+src/etf/EtfStrategyTab.jsx   # ETF 三策略（本次改动）
 src/etf/optimization/wfo.js / gridSearch.js
 src/etf/strategies/momentum.js / dualMomentum.js / volControl.js / metrics.js
-src/qqq/QqqRotationTab.jsx   # QQQ 轮转策略（本次改动）
+src/qqq/QqqRotationTab.jsx   # QQQ 轮转策略（Session 18 第一批已完成）
 src/qqq/optimization/qqqWfo.js / qqqGridSearch.js
 src/qqq/strategies/qqqRotation.js
 src/shared/WfoSummaryTable.jsx
@@ -17,81 +17,53 @@ src/shared/WfoSummaryTable.jsx
 
 ---
 
-## ✅ Session 18 完成（未 commit）
+## ✅ Session 18 进度（未 commit）
 
-### localStorage 持仓持久化 — `src/qqq/QqqRotationTab.jsx`
+### localStorage 持仓持久化 — 全 5 策略
 
-**问题：** 原来用 `prevSignalRef`（useRef）记录上一期持仓，刷新页面后 ref 清零，
-调仓面板总显示「初始建仓」，用户无法准确看到买卖差异。
+**目标：** 刷新页面后调仓对比（买/卖/持有）不再清零，用「✅ 我已完成调仓」按钮手动确认更新。
 
-**解决方案：** 用 `localStorage` + `useState` 替换 `prevSignalRef`，加「✅ 我已完成调仓」按钮。
+| 文件 | 组件 | localStorage key | 状态 |
+|------|------|-----------------|------|
+| `src/qqq/QqqRotationTab.jsx` | `QqqRotationTab` 主体 | `qqq_rotation_holdings` | ✅ 已完成（上一批 commit） |
+| `qqq-momentum.jsx` | `QqqSignalCard` | `qqq_momentum_holdings` | ✅ 已完成 |
+| `src/etf/EtfStrategyTab.jsx` | `SignalCard`（共用） | `etf_momentum_holdings` / `etf_dualMomentum_holdings` / `etf_volControl_holdings` | 🔄 进行中（prevSignalRef 已替换，确认按钮待加） |
 
-**改动清单（QqqRotationTab.jsx）：**
+### 改动模式（三处文件均相同）
 
-| 位置 | 改动 |
-|------|------|
-| import 行 | 加入 `useEffect` |
-| state 区块 | 新增 `myHoldings` state，从 `localStorage.getItem('qqq_rotation_holdings')` 初始化 |
-| state 区块 | 新增 `useEffect` 监听 `myHoldings` 变化，自动写入 localStorage |
-| state 区块 | 新增 `confirmTrades` callback，把当前 signal 存入 `myHoldings` |
-| 持仓对比逻辑 | `prevSignalRef` + `useRef(null)` → `const prevSignal = myHoldings` |
-| `isFirstSignal` | 由 `!prevSignal.holdings.length` → 兼容 isDefensive 情况的空判断 |
-| ref 更新行 | 删除 `prevSignalRef.current = signal`，改为注释说明 |
-| 调仓面板底部 | 新增「✅ 我已完成调仓」按钮、「📌 上次确认」日期+持仓摘要、「🗑 清除记录」按钮 |
-
-**localStorage key：** `qqq_rotation_holdings`
-
-**存储结构：**
-```json
-{
-  "holdings": { "NVDA": 0.2, "AAPL": 0.2, "MSFT": 0.2, "AMZN": 0.2, "META": 0.2 },
-  "isDefensive": false,
-  "defensiveAsset": null,
-  "prices": { "NVDA": 135.5, ... },
-  "date": "2026-05-27"
-}
+```
+useState 初始化从 localStorage 读取
+useEffect 监听变化自动写入 localStorage
+prevSignalRef / useRef → const prevSignal = myHoldings
+confirmTrades callback → 把 signal 存入 myHoldings
+UI 底部加：✅已完成调仓 / 📌上次确认 / 🗑清除记录
 ```
 
-**用户使用流程：**
-1. 第一次打开 → `myHoldings = null` → 显示「🟢 初始建仓」
-2. 执行买入后点「✅ 我已完成调仓」→ 持仓写入 localStorage
-3. 任何时候刷新 / 重新打开 → 从 localStorage 读取 → 正确显示增量调仓（卖出/买入/继续持有）
-4. 不再需要时点「🗑 清除记录」→ 重置为初始建仓状态
+### localStorage keys 汇总
+
+| 策略 | key |
+|------|-----|
+| QQQ 轮转策略 | `qqq_rotation_holdings` |
+| QQQ 成分股轮动 | `qqq_momentum_holdings` |
+| ETF 强势轮动 | `etf_momentum_holdings` |
+| ETF 双动能 | `etf_dualMomentum_holdings` |
+| ETF 波动率控管 | `etf_volControl_holdings` |
 
 ---
 
 ## ✅ Session 17 全部完成（已 commit）
 
-### IS/OOS 无未来数据完整审计
-
-所有5策略均无 look-ahead bias ✅（详见历史 handoff.md）
-
-### QQQ 轮转策略 WFO OOS 净值曲线
-
-将 `MiniLineChart` 替换为 `EquityCurveChart`（含年份刻度 + OOS 日期范围标注）
+- 双模式 WFO 修复（5策略统一）
+- IS/OOS 无未来数据审计通过
+- QQQ 轮转 WFO OOS 曲线改用 EquityCurveChart
 
 ---
 
-## 关键设计约定
+## 下一步（当前 session 待完成）
 
-### 双模式 WFO
-
-| 模式 | 触发 | IS 期 | OOS 期 |
-|------|------|-------|--------|
-| 📌 固定参数 OOS 验证 | 「应用并回测」后自动切换 | 固定参数参考绩效 | 固定参数跑 OOS |
-| 🔍 自动寻优 WFO | 手动切换或初始状态 | Grid Search 288种 | IS 最优参数跑 OOS |
-
-### 进场评分公式
-
-Score = Sharpe_pct × 0.40 + MaxDD_pct × 0.35 + CAGR_pct × 0.25
-
----
-
-## 下一步计划
-
-1. **git commit** Session 18 持仓持久化改动
-2. 测试：刷新后调仓面板是否正确显示上次持仓 vs 当前目标差异
-3. 如有其他需求继续开发
+1. `EtfStrategyTab.jsx` SignalCard 底部加确认按钮 UI（进行中）
+2. 验证：`prevSignalRef` 在两个文件中已全部清除
+3. git commit 全部改动
 
 ---
 
