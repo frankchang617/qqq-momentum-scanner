@@ -2,7 +2,7 @@
  * momentum.js — 策略1：强势轮动回测（纯函数）
  *
  * 规则：
- *  - ETF 池：QQQ、SPY、XLK、DXJ、TLT、GLD、SHY、TSM、SOXX
+ *  - ETF 池（14只）：QQQ、SPY、XLK、SOXX、QLD、SOXL、TQQQ、DXJ、TSM、EWY、EWJ、TLT、GLD、SHY
  *  - 每月末（每 21 个交易日）计算各 ETF 过去 lookback 天的收益率
  *  - 买入排名前 topN 名，等权持有
  *  - 若所有资产动能均为负，切换到 defensiveAsset（SHY / GLD / CASH）
@@ -16,7 +16,16 @@
  * @returns {{ equityCurve, timestamps, tradeLog, positions }}
  */
 
-export const MOMENTUM_UNIVERSE = ['QQQ','SPY','XLK','DXJ','TLT','GLD','SHY','TSM','SOXX'];
+export const MOMENTUM_UNIVERSE = [
+  // 美股宽基 & 科技
+  'QQQ', 'SPY', 'XLK', 'SOXX',
+  // 杠杆 ETF（2x/3x）
+  'QLD', 'SOXL', 'TQQQ',
+  // 国际市场
+  'DXJ', 'TSM', 'EWY', 'EWJ',
+  // 债券 & 大宗商品（含防御）
+  'TLT', 'GLD', 'SHY',
+];
 export const MOMENTUM_PARAM_GRID = {
   lookback:        [20, 21, 50, 63, 126, 200, 252], // 20D,1M,50D,3M,6M,200D,12M
   topN:            [1, 2, 3],

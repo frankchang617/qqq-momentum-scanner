@@ -491,7 +491,7 @@ function EtfStrategyRuleCard({ T, strategy, params }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
           <div>
             <div style={{ fontWeight: 700, color: '#4fc86e', marginBottom: 6, fontSize: 12 }}>入场条件</div>
-            <div>· ETF 池（9只）：QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM / SOXX</div>
+            <div>· ETF 池（14只）：QQQ / SPY / XLK / SOXX / QLD / SOXL / TQQQ / DXJ / TSM / EWY / EWJ / TLT / GLD / SHY</div>
             <div>· 每月末计算各 ETF 过去 <b style={{color:T.textBright}}>{lb}</b> 收益率</div>
             <div>· 选排名前 <b style={{color:T.textBright}}>Top {params.topN||1}</b>，等权持有</div>
             <div>· 仅选正动能（ret ≥ 0），负动能 ETF 不纳入</div>
@@ -500,7 +500,7 @@ function EtfStrategyRuleCard({ T, strategy, params }) {
             <div style={{ fontWeight: 700, color: '#ee3344', marginBottom: 6, fontSize: 12 }}>出场条件</div>
             <div>· 每月调仓重新排名，不在 Top{params.topN||1} 的持仓<b style={{color:'#ee3344'}}>全部清仓</b>（无缓冲区）</div>
             <div>· 个股动能转负 → 调仓日不再入选</div>
-            <div>· 所有 9 只 ETF 动能均为负 → 全仓切换防御资产</div>
+            <div>· 所有 14 只 ETF 动能均为负 → 全仓切换防御资产</div>
             <div>· 无独立止损 / 止盈 / 移动止损</div>
           </div>
           <div>
@@ -523,7 +523,7 @@ function EtfStrategyRuleCard({ T, strategy, params }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
           <div>
             <div style={{ fontWeight: 700, color: '#4fc86e', marginBottom: 6, fontSize: 12 }}>入场条件（三层过滤）</div>
-            <div>· ETF 池（8只，无 SOXX）：QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM</div>
+            <div>· ETF 池（13只，无 SOXX）：QQQ / SPY / XLK / QLD / SOXL / TQQQ / DXJ / TSM / EWY / EWJ / TLT / GLD / SHY</div>
             <div>· <b style={{color:T.textBright}}>第一层·相对动能</b>：计算 {lb} 收益率，选排名第 1</div>
             <div>· <b style={{color:T.textBright}}>第二层·绝对动能</b>：排名第 1 的 ETF 收益率必须 &gt; 0</div>
             <div>· <b style={{color:T.textBright}}>第三层·趋势过滤</b>：排名第 1 的 ETF 收盘价必须 &gt; MA{params.maFilter||200}</div>
@@ -791,7 +791,7 @@ function MomentumPanel({ etfData, T, pendingOverride, onRunBacktest }) {
       <EtfStrategyRuleCard T={T} strategy="momentum" params={params} />
       <SignalCard etfData={etfData} strategy="momentum" params={params} T={T} />
       <div style={{ fontSize: 13, color: T.textSub, marginBottom: 14, lineHeight: 1.6 }}>
-        每月从 <strong style={{ color: T.textBright }}>QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM / SOXX</strong> 中选动能最强的 ETF 持有。
+        每月从 <strong style={{ color: T.textBright }}>QQQ / SPY / XLK / SOXX / QLD / SOXL / TQQQ / DXJ / TSM / EWY / EWJ / TLT / GLD / SHY</strong> 中选动能最强的 ETF 持有。
         所有 ETF 动能均为负时切换防御资产。
       </div>
 
@@ -1698,7 +1698,7 @@ export default function EtfStrategyTab({ T, darkMode }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: loading ? 12 : 0 }}>
               <div style={{ fontSize: 11, color: T.textMuted }}>
-                标的：QQQ / SPY / XLK / DXJ / TLT / GLD / SHY / TSM / SOXX + ^VIX
+                标的：QQQ / SPY / XLK / SOXX / QLD / SOXL / TQQQ / DXJ / TSM / EWY / EWJ / TLT / GLD / SHY + ^VIX
               </div>
               <button onClick={handleLoad} disabled={loading} style={{
                 padding: '5px 16px', borderRadius: 6, fontFamily: 'inherit', fontSize: 11,

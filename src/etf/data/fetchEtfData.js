@@ -1,7 +1,10 @@
 /**
  * fetchEtfData.js — 拉取 ETF + VIX 历史数据（10年）
  *
- * 标的：QQQ、SPY、XLK、DXJ、TLT、GLD、SHY、TSM、SOXX + ^VIX
+ * 标的：QQQ、SPY、XLK、DXJ、TLT、GLD、SHY、TSM、SOXX
+ *       QLD（2x QQQ）、SOXL（3x 半导体）、TQQQ（3x QQQ）
+ *       EWY（韩国）、EWJ（日本）
+ *       + ^VIX
  * 数据源：Yahoo Finance（通过现有 /api/yahoo 代理）
  * 返回格式：
  *  {
@@ -16,7 +19,16 @@
 
 import { calcQqqVol20 } from '../strategies/volControl.js';
 
-export const ETF_SYMBOLS = ['QQQ','SPY','XLK','DXJ','TLT','GLD','SHY','TSM','SOXX'];
+export const ETF_SYMBOLS = [
+  // 美股宽基 & 科技
+  'QQQ', 'SPY', 'XLK', 'SOXX',
+  // 杠杆 ETF
+  'QLD', 'SOXL', 'TQQQ',
+  // 国际市场
+  'DXJ', 'TSM', 'EWY', 'EWJ',
+  // 债券 & 大宗商品
+  'TLT', 'GLD', 'SHY',
+];
 const RANGE = '10y';
 const BATCH_SIZE = 3;      // 每批同时请求数量（避免限速）
 const BATCH_DELAY_MS = 600; // 批次间延迟

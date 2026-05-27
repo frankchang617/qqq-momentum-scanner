@@ -2,7 +2,7 @@
  * dualMomentum.js — 策略2：双动能回测（纯函数）
  *
  * 规则（Gary Antonacci 双动能框架）：
- *  - ETF 池：QQQ、SPY、XLK、DXJ、TLT、GLD、SHY、TSM（无 SOXX）
+ *  - ETF 池（13只）：QQQ、SPY、XLK、QLD、SOXL、TQQQ、DXJ、TSM、EWY、EWJ、TLT、GLD、SHY（无 SOXX）
  *  - 每月末计算各 ETF 过去 lookback 天收益率
  *  - 选排名第1的 ETF（绝对动能 + 相对动能）
  *  - 附加趋势过滤：若该 ETF 收盘价低于 MA(maFilter)，改持防御资产
@@ -11,7 +11,16 @@
  * 无未来数据：信号 T-1 收盘 → 执行 T 收盘
  */
 
-export const DUAL_MOMENTUM_UNIVERSE = ['QQQ','SPY','XLK','DXJ','TLT','GLD','SHY','TSM'];
+export const DUAL_MOMENTUM_UNIVERSE = [
+  // 美股宽基 & 科技
+  'QQQ', 'SPY', 'XLK',
+  // 杠杆 ETF（2x/3x）
+  'QLD', 'SOXL', 'TQQQ',
+  // 国际市场
+  'DXJ', 'TSM', 'EWY', 'EWJ',
+  // 债券 & 大宗商品（含防御）
+  'TLT', 'GLD', 'SHY',
+];
 export const DUAL_MOMENTUM_PARAM_GRID = {
   lookback:       [20, 50, 63, 126, 200, 252], // 20D,50D,3M,6M,200D,12M
   maFilter:       [100, 200],
