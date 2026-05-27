@@ -8,7 +8,7 @@
  *   darkMode  : boolean
  */
 
-import React, { useState, useCallback, useMemo, useRef, Fragment } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, Fragment } from 'react';
 import { backtestQqqRotation, buildQqqBenchmark, paramLabelQqq } from './strategies/qqqRotation.js';
 import { runQqqGridSearch } from './optimization/qqqGridSearch.js';
 import { runQqqWFO } from './optimization/qqqWfo.js';
@@ -452,6 +452,26 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
   // WFO 运行模式：'fixed' = 固定参数OOS验证 / 'auto' = 自动寻优
   const [wfoMode, setWfoMode] = useState('auto');
 
+  // ── 我的实际持仓（localStorage 持久化，刷新不丢失）──
+  const [myHoldings, setMyHoldings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('qqq_rotation_holdings') || 'null'); }
+    catch { return null; }
+  });
+  useEffect(() => {
+    if (myHoldings !== null) localStorage.setItem('qqq_rotation_holdings', JSON.stringify(myHoldings));
+    else localStorage.removeItem('qqq_rotation_holdings');
+  }, [myHoldings]);
+  const confirmTrades = useCallback(() => {
+    if (!signal) return;
+    setMyHoldings({
+      holdings:       signal.holdings       || {},
+      isDefensive:    signal.isDefensive,
+      defensiveAsset: signal.defensiveAsset || null,
+      prices:         signal.prices         || {},
+      date:           signal.date,
+    });
+  }, [signal]);
+
   // ── 本地数据加载 ──
   const histAbortRef = useRef(null);
   const [histDataLocal, setHistDataLocal] = useState(null);
@@ -675,10 +695,10 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     };
   }, [effData, effTs, params]);
 
-  // ── 持仓对比：上一期目标持仓 vs 本期目标持仓 ──
-  const prevSignalRef = useRef(null);
-  const prevSignal = prevSignalRef.current;
-  const isFirstSignal = !prevSignal || Object.keys(prevSignal.holdings).length === 0;
+  // ── 持仓对比：我的实际持仓（localStorage）vs 本期目标持仓 ──
+  const prevSignal = myHoldings;  // 直接用持久化的持仓记录
+  const isFirstSignal = !prevSignal ||
+    (!prevSignal.isDefensive && Object.keys(prevSignal.holdings || {}).length === 0);
 
   let sellList = [], buyList = [], holdList = [];
 
@@ -738,8 +758,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     }
   }
 
-  // 更新 ref
-  prevSignalRef.current = signal;
+  // （持仓记录已由 myHoldings + localStorage 负责，无需手动更新 ref）
 
   // ── 资金流转摘要 ──
   const cap = parseFloat(investAmount) || 0;
@@ -1144,6 +1163,43 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
               {cap > 0 && <span>，共 {fmtMoney(cap)}</span>}
             </div>
           )}
+
+          {/* ── 确认调仓 + 持仓记录 ── */}
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              onClick={confirmTrades}
+              style={{
+                padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+                background: 'linear-gradient(135deg,#00aa44,#00cc55)',
+                border: 'none', color: '#fff', boxShadow: '0 2px 8px #00aa4444',
+              }}
+            >
+              ✅ 我已完成调仓
+            </button>
+            {myHoldings && (
+              <div style={{ fontSize: 10, color: T.textMuted, flex: 1 }}>
+                📌 上次确认：<b style={{ color: T.textSub }}>{myHoldings.date}</b>
+                {myHoldings.isDefensive
+                  ? <span>，防御模式（{myHoldings.defensiveAsset}）</span>
+                  : <span>，持有 {Object.keys(myHoldings.holdings || {}).join(' / ')}</span>
+                }
+              </div>
+            )}
+            {myHoldings && (
+              <button
+                onClick={() => setMyHoldings(null)}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, cursor: 'pointer',
+                  fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+                  background: 'transparent', border: `1px solid ${T.border}`,
+                  color: T.textMuted,
+                }}
+              >
+                🗑 清除记录
+              </button>
+            )}
+          </div>
         </div>
       )}
 
