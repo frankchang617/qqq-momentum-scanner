@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-27 Session 18（ETF 标的池扩充完成）
+更新时间：2026-05-27 Session 18（白屏 TDZ bug 修复 + ETF 标的池扩充）
 
 ## 项目结构
 
@@ -18,39 +18,44 @@ src/shared/WfoSummaryTable.jsx
 
 ---
 
-## ✅ Session 18 全部完成（未 commit）
+## ✅ Session 18 全部完成
 
-### 1. localStorage 持仓持久化（5策略）
+### 1. localStorage 持仓持久化（5策略）— commit `02ab41e` / `a97f1f3`
 
-| 策略 | key | commit |
-|------|-----|--------|
-| QQQ 轮转策略 | `qqq_rotation_holdings` | `02ab41e` |
-| QQQ 成分股轮动 | `qqq_momentum_holdings` | `a97f1f3` |
-| ETF 强势轮动 | `etf_momentum_holdings` | `a97f1f3` |
-| ETF 双动能 | `etf_dualMomentum_holdings` | `a97f1f3` |
-| ETF 波动率控管 | `etf_volControl_holdings` | `a97f1f3` |
+| 策略 | localStorage key |
+|------|-----------------|
+| QQQ 轮转策略 | `qqq_rotation_holdings` |
+| QQQ 成分股轮动 | `qqq_momentum_holdings` |
+| ETF 强势轮动 | `etf_momentum_holdings` |
+| ETF 双动能 | `etf_dualMomentum_holdings` |
+| ETF 波动率控管 | `etf_volControl_holdings` |
 
-### 2. ETF 标的池扩充（本次新增，未 commit）
+### 2. ETF 标的池扩充 9→14 只 — commit `ddf2edb`
 
-**新增 5 只标的：QLD、SOXL、TQQQ（杠杆）、EWY（韩国）、EWJ（日本）**
-
-| 文件 | 改动 |
-|------|------|
-| `fetchEtfData.js` | `ETF_SYMBOLS` 9只 → 14只 |
-| `momentum.js` | `MOMENTUM_UNIVERSE` 9只 → 14只 |
-| `dualMomentum.js` | `DUAL_MOMENTUM_UNIVERSE` 8只 → 13只（仍无SOXX） |
-| `EtfStrategyTab.jsx` | 规则卡、策略描述、数据加载状态栏文字同步更新 |
-
-**扩充后标的池（14只）：**
+新增：QLD（2x QQQ）、SOXL（3x 半导体）、TQQQ（3x QQQ）、EWY（韩国）、EWJ（日本）
 
 | 分类 | 标的 |
 |------|------|
 | 美股宽基 & 科技 | QQQ, SPY, XLK, SOXX |
-| 杠杆 ETF | QLD（2x QQQ）, SOXL（3x 半导体）, TQQQ（3x QQQ） |
-| 国际市场 | DXJ（日本对冲）, TSM, EWY（韩国）, EWJ（日本） |
+| 杠杆 ETF | QLD, SOXL, TQQQ |
+| 国际市场 | DXJ, TSM, EWY, EWJ |
 | 债券 & 商品 | TLT, GLD, SHY |
 
-⚠️ **波动率控管策略不受影响**（只用 QQQ 作为主资产）
+### 3. 白屏 TDZ bug 修复 — 本次 commit（待推送）
+
+**根因：** `useCallback(..., [signal])` 在依赖数组求值时，`signal` 尚未被 `const` 初始化，
+触发 JavaScript **Temporal Dead Zone ReferenceError**，导致组件崩溃白屏。
+
+| 文件 | 问题 | 修复方式 |
+|------|------|---------|
+| `QqqRotationTab.jsx` | `confirmTrades`（line 464）在 `signal`（line 636）之前定义 | 移至 signal 之后（line 690），改为普通函数 |
+| `qqq-momentum.jsx` | `confirmTrades`（line 907）在 `signal`（line 909）之前定义 | 移至 signal 之后（line 966），改为普通函数 |
+| `EtfStrategyTab.jsx` | `signal`（line 161）在 `confirmTrades`（line 177）之前 ✅ | 无需改动 |
+
+**白屏场景覆盖：**
+- ✅ QQQ 轮转策略 — 点击 tab 立即白屏（TDZ）→ 已修复
+- ✅ QQQ 成分股轮动 — 数据加载完成后白屏（TDZ）→ 已修复
+- ✅ ETF 策略 — 原本 signal 在前，无 TDZ 问题，无白屏
 
 ---
 
@@ -73,10 +78,17 @@ src/shared/WfoSummaryTable.jsx
 ### 进场评分公式
 Score = Sharpe_pct × 0.40 + MaxDD_pct × 0.35 + CAGR_pct × 0.25
 
+### 信号无泄漏原则
+```
+OOS 调仓日 i ≥ inEnd
+信号索引 sigIdx = i - 1  ← 最后一个 IS 日
+动能计算 closes[sigIdx - lookback]  ← 全部在 IS 期内 ✅
+```
+
 ---
 
 ## 下一步
-1. git commit + push 本次 ETF 标的池扩充改动
+- 暂无待办，等待用户新需求
 
 ---
 

@@ -461,16 +461,7 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
     if (myHoldings !== null) localStorage.setItem('qqq_rotation_holdings', JSON.stringify(myHoldings));
     else localStorage.removeItem('qqq_rotation_holdings');
   }, [myHoldings]);
-  const confirmTrades = useCallback(() => {
-    if (!signal) return;
-    setMyHoldings({
-      holdings:       signal.holdings       || {},
-      isDefensive:    signal.isDefensive,
-      defensiveAsset: signal.defensiveAsset || null,
-      prices:         signal.prices         || {},
-      date:           signal.date,
-    });
-  }, [signal]);
+  // confirmTrades 定义在 signal 之后（见下方），避免 TDZ 错误
 
   // ── 本地数据加载 ──
   const histAbortRef = useRef(null);
@@ -694,6 +685,18 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
       scores:   scores.slice(0, 10),
     };
   }, [effData, effTs, params]);
+
+  // ── 确认调仓（定义在 signal 之后，避免 const TDZ 崩溃）──
+  const confirmTrades = () => {
+    if (!signal) return;
+    setMyHoldings({
+      holdings:       signal.holdings       || {},
+      isDefensive:    signal.isDefensive,
+      defensiveAsset: signal.defensiveAsset || null,
+      prices:         signal.prices         || {},
+      date:           signal.date,
+    });
+  };
 
   // ── 持仓对比：我的实际持仓（localStorage）vs 本期目标持仓 ──
   const prevSignal = myHoldings;  // 直接用持久化的持仓记录

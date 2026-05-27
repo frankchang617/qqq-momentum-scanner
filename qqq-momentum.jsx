@@ -904,17 +904,7 @@ function QqqSignalCard({ histData, histTs, params, T, darkMode }) {
     if (myHoldings !== null) localStorage.setItem('qqq_momentum_holdings', JSON.stringify(myHoldings));
     else localStorage.removeItem('qqq_momentum_holdings');
   }, [myHoldings]);
-  const confirmTrades = useCallback(() => {
-    if (!signal) return;
-    setMyHoldings({
-      holdings:       signal.holdings       || {},
-      bufferHoldings: signal.bufferHoldings || {},
-      isDefensive:    signal.isDefensive,
-      prices:         signal.prices         || {},
-      date:           signal.date,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signal]);
+  // confirmTrades 定义在 signal 之后（见下方），避免 TDZ 错误
 
   const signal = useMemo(() => {
     if (!histData || !histTs || histTs.length === 0) return null;
@@ -971,6 +961,18 @@ function QqqSignalCard({ histData, histTs, params, T, darkMode }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [histData, histTs, JSON.stringify(params)]);
+
+  // ── 确认调仓（定义在 signal 之后，避免 const TDZ 崩溃）──
+  const confirmTrades = () => {
+    if (!signal) return;
+    setMyHoldings({
+      holdings:       signal.holdings       || {},
+      bufferHoldings: signal.bufferHoldings || {},
+      isDefensive:    signal.isDefensive,
+      prices:         signal.prices         || {},
+      date:           signal.date,
+    });
+  };
 
   // ── 持仓对比（用 localStorage 持久化的持仓记录）──
   const prevSignal = myHoldings;
