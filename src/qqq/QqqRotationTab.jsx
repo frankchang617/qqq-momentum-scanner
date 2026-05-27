@@ -1533,20 +1533,24 @@ export default function QqqRotationTab({ histData, histTs, T, darkMode }) {
                     </table>
                   </div>
 
-                  {/* OOS 净值曲线 */}
+                  {/* OOS 净值曲线（用 EquityCurveChart 以显示年份刻度） */}
                   {wfoResult.allOutEquity.length > 10 && (
                     <div style={{ background: T.pageBg, border: `1px solid ${T.border}`, borderRadius: 8, padding: '14px 16px', overflowX: 'auto', marginBottom: 16 }}>
-                      <div style={{ fontSize: 10, color: T.textSub, marginBottom: 8 }}>
-                        OOS 净值曲线（策略 实线 vs QQQ 虚线）
-                        {isFixed && <span style={{ color: '#4fc86e', marginLeft: 8 }}>固定参数：{paramLabelQqq(wfoResult.fixedParams)}</span>}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, color: T.textSub }}>
+                          OOS 净值曲线（策略 蓝线 vs QQQ 灰虚线）
+                        </span>
+                        <span style={{ fontSize: 9, color: T.textMuted }}>
+                          样本外区间：{fmtDate(wfoResult.windowResults[0]?.outTsStart)} → {fmtDate(wfoResult.windowResults[0]?.outTsEnd)}
+                          （{wfoResult.outDays} 天 / 后30%数据）
+                        </span>
+                        {isFixed && <span style={{ fontSize: 9, color: '#4fc86e' }}>固定参数：{paramLabelQqq(wfoResult.fixedParams)}</span>}
                       </div>
-                      <MiniLineChart
+                      <EquityCurveChart
+                        stratEq={wfoResult.allOutEquity}
+                        qqqEq={wfoResult.qqqWfoEq ?? []}
+                        timestamps={wfoResult.allOutTs}
                         T={T}
-                        series={[
-                          { data: wfoResult.allOutEquity, color: '#4fc86e', label: 'OOS 策略' },
-                          ...(wfoResult.qqqWfoEq?.length > 1 ? [{ data: wfoResult.qqqWfoEq, color: '#5588cc', label: 'QQQ 基准' }] : []),
-                        ]}
-                        width={560} height={130}
                       />
                     </div>
                   )}

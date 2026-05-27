@@ -1,139 +1,102 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-26 Session 17（全部5个策略 WFO 双模式修复完成）
+更新时间：2026-05-27 Session 17（IS/OOS 无未来数据全策略审计完成）
 
 ## 项目结构
 
 ```
-qqq-momentum.jsx              # QQQ 成分股动能扫描主文件（含 QQQ成分股轮动 + 扫描器）
-src/etf/                      # ETF 跨资产策略模块
-  EtfStrategyTab.jsx          # ETF 主容器（WfoPanel + 3策略面板本次全部修复）
-  optimization/
-    gridSearch.js             # 参数网格搜索（加 strategyFilter 参数）
-    wfo.js                    # ETF WFO（双模式）
-  strategies/
-    momentum.js / dualMomentum.js / volControl.js / metrics.js
-  data/fetchEtfData.js
+qqq-momentum.jsx              # QQQ 成分股动能扫描 + 成分股轮动
+src/etf/EtfStrategyTab.jsx   # ETF 三策略 + WFO
+src/etf/optimization/wfo.js / gridSearch.js
+src/etf/strategies/momentum.js / dualMomentum.js / volControl.js / metrics.js
+src/qqq/QqqRotationTab.jsx   # QQQ 轮转策略
+src/qqq/optimization/qqqWfo.js / qqqGridSearch.js
+src/qqq/strategies/qqqRotation.js
 src/shared/WfoSummaryTable.jsx
-src/qqq/                      # QQQ 轮转策略模块
-  QqqRotationTab.jsx          # QQQ 轮转策略主容器（WFO 双模式，已完整）
-  strategies/qqqRotation.js
-  optimization/
-    qqqGridSearch.js
-    qqqWfo.js                 # QQQ 轮转 WFO（双模式）
 ```
 
 ---
 
-## 5个策略说明
+## ✅ Session 17 全部完成（已 commit）
 
-| Tab/子Tab | 文件 | 策略名 |
-|----------|------|--------|
-| 策略回测 → QQQ成分股轮动 | `qqq-momentum.jsx` | QQQ 成分股轮动 |
-| 策略回测 → QQQ轮转策略 | `src/qqq/QqqRotationTab.jsx` | QQQ 轮转策略 |
-| 策略回测 → ETF → 强势轮动 | `src/etf/EtfStrategyTab.jsx` `MomentumPanel` | ETF 强势轮动 |
-| 策略回测 → ETF → 双动能 | `src/etf/EtfStrategyTab.jsx` `DualMomentumPanel` | ETF 双动能 |
-| 策略回测 → ETF → 波动率控管 | `src/etf/EtfStrategyTab.jsx` `VolControlPanel` | ETF 波动率控管 |
+### 1. 双模式 WFO 完整修复（5个策略统一）
 
----
+所有5个策略的「▶ 运行回测」和「应用并回测」均已正确同步 WFO 固定参数逻辑。
 
-## ✅ Session 17 完成（当前 Session，未 commit）
+### 2. IS/OOS 无未来数据完整审计（本次新增）
 
-### 核心目标：5个策略 WFO 双模式逻辑一致
+#### 审计结论：**所有5个策略均无未来数据（look-ahead bias）问题** ✅
 
-**双模式设计：**
-- **📌 固定参数 OOS 验证（Mode A）**：用户运行过任意回测后自动切换，IS 期只算参考绩效，OOS 用固定参数
-- **🔍 自动寻优 WFO（Mode B）**：IS Grid Search 选最优 → OOS 验证，无前视偏差
+| 策略 | 文件 | 预热期(warmup) | 最小IS天数 | backtestStart | 信号使用数据 | 结论 |
+|------|------|--------------|-----------|--------------|------------|------|
+| QQQ 成分股轮动 | `qqq-momentum.jsx` | 205天（score需200日） | 252天 | = inEnd（252>205）✅ | `d = t-1`，回看IS期 | ✅ 无泄漏 |
+| QQQ 轮转策略 | `qqqRotation.js` | 201天（lookback=200+filter） | 252天 | = inEnd（252>201）✅ | `sigIdx = i-1`，回看IS期 | ✅ 无泄漏 |
+| ETF 强势轮动 | `momentum.js` | lookback+1（≤253天） | 756天（3年） | = oosStart（756>253）✅ | `sigIdx = i-1` | ✅ 无泄漏 |
+| ETF 双动能 | `dualMomentum.js` | max(lookback,maFilter)+1（≤253天） | 756天 | = oosStart（756>253）✅ | `sigIdx = i-1` + MA回看IS期 | ✅ 无泄漏 |
+| ETF 波动率控管 | `volControl.js` | 22天（realized vol） | 756天 | = oosStart（756>22）✅ | `sigIdx = i-1`，vol用IS期 | ✅ 无泄漏 |
 
----
+**核心逻辑验证：**
+- OOS 回测调用：`backtestXxx(data, timestamps, params, inEnd, N)`
+- 第一个 OOS 调仓日：`i = backtestStart = inEnd`
+- 信号：`sigIdx = i - 1 = inEnd - 1`（最后一个 IS 日）
+- 动能回看：`closes[sigIdx - lookback]` ≤ `closes[inEnd - 1 - lookback]` → 全部在 IS 期内 ✅
 
-### Bug 修复汇总
+**70% IS / 30% OOS 窗口：**
+- QQQ 成分股轮动 & QQQ 轮转策略：`inEnd = round(N × 0.70)`，单窗口
+- ETF 三策略：IS=3年(756天) / OOS=1年(252天)，滑动窗口，约6~7个窗口
 
-#### Bug 1：QQQ 成分股轮动 — 无双模式（本次修复）
+#### 净值曲线"看起来不对"问题修复
 
-**文件：** `qqq-momentum.jsx`
+**原因：** QQQ 轮转策略 WFO OOS 净值曲线使用 `MiniLineChart`，该组件：
+- **无 x 轴日期标注**（只有索引 0→n）
+- 无年份刻度线
+- 看起来像全量历史数据，实际只有后30%（3年）
 
-**修复内容：**
-1. `runWFO(histData, commonTs, qqqCloses, optMetric, fixedParams=null)` — 加第5参数 `fixedParams`
-   - `fixedParams != null` → 模式A（跳过 IS Grid Search）
-   - `fixedParams == null` → 模式B（原有 448 种 Grid Search）
-2. 新增 state：`appliedParams`（null）、`wfoMode`（'auto'）
-3. `runStratBacktest` 加：`setAppliedParams({...params}); setWfoMode('fixed')`
-4. `handleRunWFO` 加：`const fixedArg = wfoMode==='fixed' ? appliedParams : null;`，传给 `runWFO`
-5. WFO UI 加双模式 Tab 切换器（📌 固定参数 / 🔍 自动寻优）
-6. 固定参数模式显示已选参数绿色框
-7. 结果表格：摘要栏区分模式，IS Score 列仅自动模式显示，新增 IS CAGR / IS Sharpe 参考列
+**修复：** 将 `MiniLineChart` 替换为 `EquityCurveChart`（有年份刻度），并在标题处明确标注 OOS 日期范围（起始→结束，天数/后30%数据）。
 
-#### Bug 2：ETF 三策略面板「▶ 运行回测」未通知 WFO（本次修复）
-
-**文件：** `src/etf/EtfStrategyTab.jsx`
-
-**修复内容：**
-- `MomentumPanel` / `DualMomentumPanel` / `VolControlPanel` 函数签名均加 `onRunBacktest` prop
-- 各自 `runWithParams` 首行加 `onRunBacktest?.({ strategy: '...', ...p })`
-- 主组件新增 `handleStratBacktest = (params) => setPendingOverride({ params, ts: Date.now() })`
-- 三个面板 JSX 调用加 `onRunBacktest={handleStratBacktest}`
-
-#### Bug 3：QQQ 轮转策略 `handleRunBacktest` 未更新 `appliedParams`（上轮修复）
-
-`handleRunBacktest` 加：`setAppliedParams({ ...params }); setWfoMode('fixed')`
+**修改位置：** `src/qqq/QqqRotationTab.jsx` line ~1536
 
 ---
 
-### 五策略 WFO 一致性最终状态
-
-| 策略 | `▶ 运行回测` → WFO 固定参数 | `应用并回测` → WFO 固定参数 |
-|------|-----------------------|------------------------|
-| QQQ 成分股轮动 | ✅ (本次修复) | ✅ |
-| QQQ 轮转策略 | ✅ (上轮修复) | ✅ |
-| ETF 强势轮动 | ✅ (本次修复) | ✅ |
-| ETF 双动能 | ✅ (本次修复) | ✅ |
-| ETF 波动率控管 | ✅ (本次修复) | ✅ |
-
----
-
-## 改动文件汇总（本 Session）
+## 改动文件汇总（Session 17 全部）
 
 | 文件 | 改动摘要 |
 |------|---------|
-| `qqq-momentum.jsx` | `runWFO` 加 `fixedParams` 双模式；新增 `appliedParams`/`wfoMode` state；`runStratBacktest` 追踪参数；WFO UI 双模式 Tab + 结果表 |
+| `qqq-momentum.jsx` | `runWFO` 加 `fixedParams` 双模式；`appliedParams`/`wfoMode` state；WFO UI 重构 |
 | `src/etf/optimization/wfo.js` | 完全重写，支持 `fixedParams` 双模式 |
 | `src/etf/optimization/gridSearch.js` | 新增 `strategyFilter` 参数 |
-| `src/etf/EtfStrategyTab.jsx` | WfoPanel 双模式 UI；三策略面板加 `onRunBacktest`；新增 `handleStratBacktest` |
+| `src/etf/EtfStrategyTab.jsx` | WfoPanel 双模式 UI；三策略面板加 `onRunBacktest`；`handleStratBacktest` |
 | `src/qqq/optimization/qqqWfo.js` | 完全重写，支持 `fixedParams` 双模式 |
-| `src/qqq/QqqRotationTab.jsx` | 新增 `appliedParams`/`wfoMode` state；`handleRunBacktest` 补充；WFO UI 重构 |
+| `src/qqq/QqqRotationTab.jsx` | `appliedParams`/`wfoMode` state；WFO UI 重构；OOS 曲线改用 `EquityCurveChart` |
 
 ---
 
-## 关键函数签名
+## 关键设计约定
 
-```js
-// QQQ 成分股轮动（qqq-momentum.jsx）
-runWFO(histData, commonTs, qqqCloses, optMetric='sharpe', fixedParams=null)
+### 双模式 WFO
 
-// ETF 跨资产策略
-runWFO(closes, timestamps, vix, qqqVol20, optMetric, onProgress, opens, strategyFilter, fixedParams)
+| 模式 | 触发 | IS 期 | OOS 期 |
+|------|------|-------|--------|
+| 📌 固定参数 OOS 验证 | 任意「运行回测」/「应用并回测」后自动切换 | 用固定参数算参考绩效，**不搜索** | 用固定参数跑 OOS |
+| 🔍 自动寻优 WFO | 手动切换，或初始状态 | Grid Search 选最优 | 用 IS 最优参数跑 OOS |
 
-// QQQ 轮转策略
-runQqqWFO(histData, timestamps, optMetric, onProgress, fixedParams)
+### 信号无泄漏原则
+
+```
+OOS 调仓日 i ≥ inEnd
+信号索引 sigIdx = i - 1 ≤ inEnd - 1  ← 最后一个 IS 日
+动能计算 closes[sigIdx - lookback]    ← 更早的 IS 期
+均线计算 closes[sigIdx-maFilter..sigIdx] ← 全部 IS 期
+→ OOS 期间的每次决策均只用 IS 期（或更早）的价格数据 ✅
 ```
 
 ---
 
 ## 下一步计划
 
-1. **提交本次全部改动**：
-   ```bash
-   git add -A
-   git commit -m "feat: 全部5策略 WFO 双模式修复——固定参数OOS验证 + 自动寻优统一"
-   ```
-
-2. **验证清单**：
-   - QQQ成分股轮动：运行回测 → WFO 显示固定参数模式 → 参数一致
-   - QQQ成分股轮动：Grid Search「应用并回测」→ WFO 固定参数 → 参数一致
-   - QQQ成分股轮动：手动切到「自动寻优」→ 跑 448 种 Grid Search
-   - ETF 三策略：运行回测 → WFO 固定参数模式正确
-   - QQQ 轮转策略：同上
+1. **git commit 本次修复**（WFO 净值曲线改用 EquityCurveChart + 日期标注）
+2. **观察净值曲线是否正常显示**（年份刻度 + 明确 OOS 时间范围）
+3. 如有其他视觉问题，进一步调查数据对齐
 
 ---
 
