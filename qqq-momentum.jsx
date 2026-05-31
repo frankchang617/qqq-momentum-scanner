@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useMemo, useId, useEffect, Fragment } fr
 import EtfStrategyTab from "./src/etf/EtfStrategyTab.jsx";
 import QqqRotationTab from "./src/qqq/QqqRotationTab.jsx";
 import SpyRotationTab from "./src/spy/SpyRotationTab.jsx";
+import SpyMomentumTab from "./src/spy/SpyMomentumTab.jsx";
 import WfoSummaryTable from "./src/shared/WfoSummaryTable.jsx";
 
 // Nasdaq-100 components (updated May 2026, 101 symbols incl. GOOGL/GOOG dual class)
@@ -1951,7 +1952,7 @@ export default function App() {
             display:"flex", gap:8, padding:"10px 28px 0",
             borderBottom:`1px solid ${T.navBorder}`, background:T.cardBg,
           }}>
-            {[{id:"qqq",label:"QQQ 成分股轮动"},{id:"qqqRotation",label:"QQQ 轮转策略"},{id:"spyRotation",label:"SPY 轮转策略"},{id:"etf",label:"ETF 跨资产策略"}].map(sub=>(
+            {[{id:"qqq",label:"QQQ 成分股轮动"},{id:"qqqRotation",label:"QQQ 轮转策略"},{id:"spyRotation",label:"SPY 轮转策略"},{id:"spyMomentum",label:"SPY 成分股轮动"},{id:"etf",label:"ETF 跨资产策略"}].map(sub=>(
               <button key={sub.id} onClick={()=>setBtSubTab(sub.id)} style={{
                 padding:"7px 18px", borderRadius:"6px 6px 0 0",
                 cursor:"pointer", fontFamily:"inherit", fontSize:12,
@@ -1976,6 +1977,11 @@ export default function App() {
           {/* SPY 轮转策略内容 */}
           {btSubTab === "spyRotation" && (
             <SpyRotationTab T={T} darkMode={darkMode} />
+          )}
+
+          {/* SPY 成分股轮动内容 */}
+          {btSubTab === "spyMomentum" && (
+            <SpyMomentumTab T={T} darkMode={darkMode} />
           )}
 
           {/* QQQ 成分股轮动内容 */}

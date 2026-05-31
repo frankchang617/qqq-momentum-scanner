@@ -1,6 +1,6 @@
 # Handoff — QQQ Momentum Scanner
 
-更新时间：2026-05-31 Session 20（SPY 成分股列表扩充至全量 S&P 500）
+更新时间：2026-05-31 Session 20（SPY 成分股轮动策略 — 开发完成，待测试）
 
 ## 项目结构
 
@@ -13,7 +13,8 @@ src/etf/strategies/momentum.js / dualMomentum.js / volControl.js / metrics.js
 src/qqq/QqqRotationTab.jsx   # QQQ 轮转策略（含网格搜索、WFO、调仓信号）
 src/qqq/optimization/qqqWfo.js / qqqGridSearch.js
 src/qqq/strategies/qqqRotation.js
-src/spy/SpyRotationTab.jsx   # SPY 轮转策略（Session 20 修复）✅
+src/spy/SpyRotationTab.jsx   # SPY 轮转策略 ✅
+src/spy/SpyMomentumTab.jsx   # SPY 成分股轮动策略 ✅（1492行，新增）
 src/spy/optimization/spyWfo.js / spyGridSearch.js
 src/spy/strategies/spyRotation.js
 src/shared/WfoSummaryTable.jsx
@@ -21,102 +22,82 @@ src/shared/WfoSummaryTable.jsx
 
 ---
 
-## ✅ Session 20 完成 — SPY 成分股全量扩充
+## ✅ Session 20 刚完成 — SPY 成分股轮动策略（本次）
 
-### 问题描述
-Session 19 的 SPY 轮转策略存在两个问题：
-1. **标的池不完整**：只有 ~110 只"代表性"股票，仅覆盖 S&P 500 的 22%，与 QQQ 轮转策略（用全量 Nasdaq-100，覆盖率 100%）不对称
-2. **硬编码不完整**：110 只是手工挑选的代表性股票，不是完整 S&P 500
+### 新建 `src/spy/SpyMomentumTab.jsx`（1492行）
 
-### 修复内容（`src/spy/SpyRotationTab.jsx`）
+完整功能：
 
-| 修改项 | 旧值 | 新值 |
-|--------|------|------|
-| `SPY_COMPONENTS` 数量 | ~110 只 | ~480 只（全量 S&P 500，11个GICS行业） |
-| 批次大小 `BATCH` | 5 | 20（加快加载速度） |
-| 批间延迟 | 300ms | 200ms |
-| 免责声明文本 | 约110只 | `{SPY_COMPONENTS.length}` 动态显示 |
-| 策略规则文本 | 约110只 | `{SPY_COMPONENTS.length}` 动态显示 |
-| 文件注释 | ~100只大市值股 | ~480只，覆盖11个GICS行业 |
+| 模块 | 说明 |
+|------|------|
+| SPY_COMPONENTS | 468只 S&P 500 成分股，BATCH=20，延迟200ms |
+| portfolioBacktest | T-1信号/T执行MOO，无前视偏差，市场过滤SPY均线 |
+| buildSpyEquity | SPY Buy & Hold 基准净值曲线 |
+| calcPortMetrics | CAGR/Sharpe/MDD/年度/月度指标 |
+| runAllCombos | 448种参数全扫（4×7×4×4） |
+| runWFO | 单窗口70%IS/30%OOS，固定参数+自动寻优双模式 |
+| SpySignalCard | 调仓指令面板，localStorage key: `spy_momentum_holdings` |
+| SpyMomentumRuleCard | 可折叠策略规则卡 |
+| SpyMomentumTab | 主组件：数据加载/MODE A回测/Grid Search/WFO |
 
-### 加载时间估算
-- 旧：~110只 / 5批 × 300ms ≈ 7秒
-- 新：~480只 / 10批 × 200ms ≈ 10秒（可接受）
+### 修改 `qqq-momentum.jsx`
 
-### 覆盖率
-| 指数 | 成分股数 | 标的池 | 覆盖率 |
-|------|----------|--------|--------|
-| QQQ（Nasdaq-100）| ~100 | ~100 | ~100% |
-| SPY（S&P 500）| ~503 | ~480 | ~95% |
+| 修改 | 内容 |
+|------|------|
+| line 5 | `import SpyMomentumTab from "./src/spy/SpyMomentumTab.jsx"` |
+| line 1955 | sub-tab 列表新增 `{id:"spyMomentum",label:"SPY 成分股轮动"}` |
+| line 1983 | `{btSubTab === "spyMomentum" && <SpyMomentumTab T={T} darkMode={darkMode} />}` |
 
-架构差异说明：`QqqRotationTab` 接受父组件 `histData/histTs` props 作为数据备用（`effData = histDataLocal || histData`），`SpyRotationTab` 只有自加载——这是有意设计，不需对齐（SPY 数据父组件没有）。
+### 与 QQQ 版本的5处差异（均已正确实现）
+
+| 项目 | QQQ | SPY |
+|------|-----|-----|
+| 成分股 | 101只 | 468只 |
+| 数据 key | `__QQQ__` | `__SPY__` |
+| 基准函数 | buildQqqEquity | buildSpyEquity |
+| 市场过滤标的 | QQQ | SPY |
+| localStorage key | `qqq_momentum_holdings` | `spy_momentum_holdings` |
+
+---
+
+## ✅ Session 20 早期完成 — SPY 轮转策略标的池扩充（commit `5a54d0a`）
+
+SPY_COMPONENTS 从110扩充至468只，批次20，延迟200ms。
 
 ---
 
 ## ✅ Session 19 全部完成 — commit `513388f`
 
-### SPY 轮转策略（4个新文件 + qqq-momentum.jsx）
-
-| 文件 | 说明 |
-|------|------|
-| `src/spy/strategies/spyRotation.js` | 纯函数回测，288种参数组合，基准 `__SPY__` |
-| `src/spy/optimization/spyGridSearch.js` | 全量参数网格搜索 |
-| `src/spy/optimization/spyWfo.js` | WFO（模式A固定参数 + 模式B自动寻优）|
-| `src/spy/SpyRotationTab.jsx` | 完整 UI：回测/优化/WFO/调仓信号/localStorage 持仓 |
-| `qqq-momentum.jsx` | 注册「SPY 轮转策略」sub-tab |
+SPY 轮转策略（spyRotation.js / spyGridSearch.js / spyWfo.js / SpyRotationTab.jsx）。
 
 ---
 
-## ✅ Session 18 全部完成（commit `02ab41e` / `a97f1f3` / `ddf2edb` / `dc1a8dc`）
+## ✅ Session 18 全部完成
 
-### localStorage 持仓持久化（全6策略）
-
-| 策略 | localStorage key |
-|------|-----------------|
-| QQQ 轮转策略 | `qqq_rotation_holdings` |
-| QQQ 成分股轮动 | `qqq_momentum_holdings` |
-| ETF 强势轮动 | `etf_momentum_holdings` |
-| ETF 双动能 | `etf_dualMomentum_holdings` |
-| ETF 波动率控管 | `etf_volControl_holdings` |
-| SPY 轮转策略（Session 19）| `spy_rotation_holdings` |
-
-### ETF 标的池扩充 9→14 只
-
-| 分类 | 标的 |
-|------|------|
-| 美股宽基 & 科技 | QQQ, SPY, XLK, SOXX |
-| 杠杆 ETF | QLD, SOXL, TQQQ |
-| 国际市场 | DXJ, TSM, EWY, EWJ |
-| 债券 & 商品 | TLT, GLD, SHY |
-
-### 白屏 TDZ bug 修复
-
-`confirmTrades` 必须定义在 `signal` useMemo 之后，否则 const TDZ 崩溃白屏。
+全6策略的 localStorage 持仓持久化。
 
 ---
 
 ## 关键设计约定
 
-### 双模式 WFO
-| 模式 | 触发 | IS 期 | OOS 期 |
-|------|------|-------|--------|
-| 📌 固定参数 OOS 验证 | 「应用并回测」后自动切换 | 固定参数参考绩效 | 固定参数跑 OOS |
-| 🔍 自动寻优 WFO | 手动切换或初始状态 | Grid Search | IS 最优参数跑 OOS |
+### 回测引擎无前视偏差
+```
+T-1 收盘信号 → T 开盘执行（MOO）
+动能计算：closes[t-1] / closes[t-1-lookback] ✅
+```
 
 ### 进场评分公式
-Score = Sharpe_pct × 0.40 + MaxDD_pct × 0.35 + CAGR_pct × 0.25
+`score = ret20 × 0.45 + ret50 × 0.35 + ret200 × 0.20`
 
-### 信号无泄漏原则
-```
-OOS 调仓日 i ≥ inEnd
-信号索引 sigIdx = i - 1  ← 最后一个 IS 日
-动能计算 closes[sigIdx - lookback]  ← 全部在 IS 期内 ✅
-```
+### 双模式 WFO（两个标的池策略共用）
+- 📌 固定参数 OOS 验证：运行回测后自动切换
+- 🔍 自动寻优 WFO：IS Grid Search（448种）→ OOS 验证
 
 ---
 
 ## 下一步
-- 暂无待办，等待用户新需求
+- 启动 dev server 测试 SPY 成分股轮动 tab 是否正常渲染
+- 可考虑 commit 当前改动
 
 ---
 
