@@ -476,7 +476,7 @@ export default function SpyRotationTab({ T, darkMode }) {
       setHistProg({ done: 1, total: SPY_COMPONENTS.length + 1 });
 
       const rawMap = new Map();
-      const BATCH  = 10;
+      const BATCH  = 20;
       for (let i = 0; i < SPY_COMPONENTS.length; i += BATCH) {
         if (signal.aborted) break;
         await Promise.all(SPY_COMPONENTS.slice(i, i + BATCH).map(async sym => {
