@@ -5,7 +5,7 @@
  *   T         : 主题色对象
  *   darkMode  : boolean
  *
- * 策略标的池：S&P 500 代表性成分股（~100只大市值股），基准 SPY ETF
+ * 策略标的池：S&P 500 全量成分股（~480只，覆盖11个GICS行业），基准 SPY ETF
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect, Fragment } from 'react';
@@ -15,31 +15,68 @@ import { runSpyWFO } from './optimization/spyWfo.js';
 import { calcMetrics } from '../etf/strategies/metrics.js';
 import WfoSummaryTable from '../shared/WfoSummaryTable.jsx';
 
-// S&P 500 代表性大市值成分股（~100只，覆盖全部11个GICS行业）
+// S&P 500 全量成分股（~480只，覆盖全部11个GICS行业，2025年6月版本）
 const SPY_COMPONENTS = [
-  // Tech & Growth
-  "AAPL","MSFT","NVDA","AMZN","GOOGL","GOOG","META","TSLA","AVGO","ORCL",
-  "CRM","ADBE","INTU","NOW","PANW","AMD","QCOM","TXN","CSCO","IBM",
-  "AMAT","LRCX","MU","KLAC","SNPS","CDNS",
-  // Financials
-  "JPM","V","MA","BAC","WFC","GS","MS","AXP","BRK-B","SPGI",
-  "CME","BLK","SCHW","C","FI","CB","MCO",
-  // Healthcare
-  "LLY","UNH","JNJ","ABBV","MRK","TMO","PFE","ABT","DHR","SYK",
-  "ISRG","AMGN","GILD","VRTX","REGN","ZTS","BMY",
-  // Consumer Discretionary & Staples
-  "WMT","COST","HD","MCD","KO","PEP","PG","NKE","TJX","LOW",
-  "SBUX","PM","TGT","BKNG","CL","MO","ORLY",
-  // Industrials
-  "GE","CAT","RTX","HON","ETN","DE","GD","UPS","LIN","CSX","CTAS",
-  // Energy
-  "XOM","CVX","COP","EOG","SLB","OXY",
-  // Communication & Media
-  "NFLX","DIS","T","VZ","CMCSA","CHTR",
-  // Utilities
-  "NEE","SO","DUK","AEP",
-  // REITs & Materials
-  "PLD","WELL","PSA","ECL","APD","SHW",
+  // 信息技术 Information Technology
+  "AAPL","MSFT","NVDA","AVGO","CRM","ORCL","NOW","ADBE","CSCO","INTU",
+  "IBM","AMAT","AMD","QCOM","TXN","PANW","KLAC","SNPS","CDNS","LRCX",
+  "MU","INTC","MSI","FTNT","MCHP","MPWR","NXPI","ANSS","KEYS","SWKS",
+  "TER","EPAM","STX","WDC","NTAP","HPQ","HPE","ACN","IT","CDW",
+  "GDDY","TYL","CTSH","APH","ON","ANET","FFIV","AKAM","GEN","SMCI",
+  "APP","TEL","GLW","ADP","PAYC","PAYX","JKHY","FIS","GPN","BR",
+  "QRVO","ARM","FICO","PTC","TRMB","ENPH","CPAY",
+  // 通信服务 Communication Services
+  "GOOGL","GOOG","META","NFLX","DIS","T","VZ","CMCSA","CHTR","TMUS",
+  "TTWO","EA","OMC","IPG","WBD","PARA","NWSA","NWS","FOXA","FOX","LYV",
+  // 非必需消费品 Consumer Discretionary
+  "AMZN","TSLA","HD","MCD","NKE","LOW","SBUX","BKNG","TJX","ORLY",
+  "YUM","CMG","DLTR","DG","ROST","DHI","PHM","LEN","LVS","WYNN",
+  "MGM","RCL","NCLH","CCL","LUV","UAL","DAL","EBAY","LULU","RL",
+  "TPR","HAS","BBY","APTV","F","GM","CPRT","AZO","KMX","CZR",
+  "DECK","POOL","TSCO","NVR","MHK","BWA","GRMN","MAR","HLT","EXPE",
+  "LKQ","H","DRI","BBWI","PVH","UBER","CVNA",
+  // 必需消费品 Consumer Staples
+  "WMT","COST","PG","KO","PEP","PM","MO","MDLZ","CL","KMB",
+  "GIS","KR","SYY","CAG","HRL","MKC","CHD","CLX","K","STZ",
+  "TAP","CPB","SJM","WBA","MNST","KDP","TSN","BG","EL","KVUE",
+  // 能源 Energy
+  "XOM","CVX","COP","EOG","SLB","OXY","MPC","PSX","VLO","HES",
+  "DVN","FANG","APA","TRGP","OKE","WMB","KMI","BKR","HAL","EQT",
+  "CTRA","MRO","TPL","NRG","VST","CEG",
+  // 金融 Financials
+  "JPM","BAC","WFC","GS","MS","C","AXP","BRK-B","SPGI","CME",
+  "BLK","SCHW","COF","CB","MCO","AIG","PRU","MET","AFL","TRV",
+  "ALL","PNC","USB","TFC","FITB","KEY","HBAN","RF","MTB","CFG",
+  "STT","BK","NTRS","ICE","NDAQ","CBOE","RJF","AMP","IVZ","BEN",
+  "PFG","GL","AIZ","WRB","EG","CINF","HIG","ACGL","MMC","AON",
+  "AJG","WTW","KKR","BX","FI","SYF","DFS","ALLY","TROW","V","MA",
+  // 医疗保健 Health Care
+  "UNH","LLY","JNJ","ABBV","MRK","TMO","ABT","DHR","SYK","ISRG",
+  "AMGN","GILD","VRTX","REGN","ZTS","BMY","CI","ELV","CNC","MOH",
+  "HUM","HCA","BSX","MDT","EW","BDX","IDXX","HOLX","DGX","LH",
+  "RMD","DXCM","PODD","MRNA","IQV","CRL","WAT","BIIB","INCY","ALGN",
+  "STE","TFX","WST","RVTY","COO","DVA","VTRS","MCK","CAH","COR",
+  "BAX","GEHC","SOLV","ZBH","HSIC","MTD","A","BIO","VLTO","PFE",
+  // 工业 Industrials
+  "GE","GEV","CAT","RTX","HON","ETN","DE","GD","UPS","CSX",
+  "CTAS","UNP","NSC","BA","MMM","EMR","ITW","GWW","NOC","LMT",
+  "HII","TDG","PWR","EXPD","JBHT","CHRW","LDOS","LHX","SWK","PH",
+  "ROK","DOV","HUBB","IR","AME","FTV","IEX","GNRC","XYL","OTIS",
+  "CARR","WAB","ODFL","URI","RSG","WM","PCAR","FAST","J","BLDR",
+  "AXON","HWM","TT","OC","GPC","AOS","PNR","ROL","ROP","TDY",
+  "VRSK","EFX","NUE","STLD","PKG","IP","BALL","AVY","AMCR","L",
+  "SAIC","MLM","VMC","JCI",
+  // 材料 Materials
+  "LIN","APD","SHW","ECL","PPG","NEM","FCX","DD","DOW","LYB",
+  "ALB","EMN","CE","IFF","FMC","MOS","CF","SW",
+  // 房地产 Real Estate
+  "AMT","PLD","EQIX","CCI","PSA","WELL","DLR","EXR","SPG","O",
+  "VICI","AVB","EQR","ESS","UDR","CPT","MAA","IRM","ARE","SBAC",
+  "BXP","VTR","REG","KIM","FRT","HST","INVH","ELS","SUI","CSGP",
+  // 公用事业 Utilities
+  "NEE","SO","DUK","D","AEP","EXC","SRE","PCG","ED","ES",
+  "XEL","ETR","LNT","PPL","CNP","EIX","CMS","AEE","NI","EVRG",
+  "PNW","ATO","PEG","FE","AWK",
 ];
 
 // ── 数据获取 ──
@@ -345,7 +382,7 @@ function StrategyRuleCard({ T, darkMode, params }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
             <div>
               <div style={{ fontWeight: 700, color: '#4fc86e', marginBottom: 6, fontSize: 12 }}>入场条件</div>
-              <div>· 对 S&P 500 代表性成分股（约110只）按单一回看期计算动能</div>
+              <div>· 对 S&P 500 全量成分股（约{SPY_COMPONENTS.length}只）按单一回看期计算动能</div>
               <div>· 动能 = 当日收盘 / N日前收盘 − 1</div>
               <div>· 选排名前 <b style={{ color: T.textBright }}>Top {params.topN}</b>，等权持有</div>
               <div>· 仅入选动能为正的股票（ret &gt; 0）</div>
@@ -439,7 +476,7 @@ export default function SpyRotationTab({ T, darkMode }) {
       setHistProg({ done: 1, total: SPY_COMPONENTS.length + 1 });
 
       const rawMap = new Map();
-      const BATCH  = 5;
+      const BATCH  = 10;
       for (let i = 0; i < SPY_COMPONENTS.length; i += BATCH) {
         if (signal.aborted) break;
         await Promise.all(SPY_COMPONENTS.slice(i, i + BATCH).map(async sym => {
@@ -450,7 +487,7 @@ export default function SpyRotationTab({ T, darkMode }) {
         }));
         setHistProg({ done: i + BATCH + 1, total: SPY_COMPONENTS.length + 1 });
         if (i + BATCH < SPY_COMPONENTS.length && !signal.aborted)
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(r => setTimeout(r, 200));
       }
       if (signal.aborted) return;
 
@@ -711,7 +748,7 @@ export default function SpyRotationTab({ T, darkMode }) {
           padding: '8px 14px', borderRadius: 6, marginBottom: 20, fontSize: 11, color: '#cc8800',
           background: darkMode ? '#1a1200' : '#fffbe6', border: '1px solid #cc880044',
         }}>
-          ⚠️ 使用当前 S&P 500 代表性成分股（约110只）回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
+          ⚠️ 使用当前 S&P 500 全量成分股（约{SPY_COMPONENTS.length}只）回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
         </div>
 
         <div style={{ padding: '16px 20px', background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 20 }}>
@@ -779,7 +816,7 @@ export default function SpyRotationTab({ T, darkMode }) {
         padding: '8px 14px', borderRadius: 6, marginBottom: 20, fontSize: 11, color: '#cc8800',
         background: darkMode ? '#1a1200' : '#fffbe6', border: '1px solid #cc880044',
       }}>
-        ⚠️ 使用当前 S&P 500 代表性成分股（约110只）回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
+        ⚠️ 使用当前 S&P 500 全量成分股（约{SPY_COMPONENTS.length}只）回测，存在<strong>幸存者偏差</strong>（历史被剔除股票未计入）。结果仅供参考，不构成投资建议。不含交易成本。
       </div>
 
       {/* 策略规则卡 */}
